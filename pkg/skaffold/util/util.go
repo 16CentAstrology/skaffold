@@ -30,9 +30,9 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/GoogleContainerTools/skaffold/pkg/skaffold/output/log"
-	"github.com/GoogleContainerTools/skaffold/pkg/skaffold/walk"
-	"github.com/GoogleContainerTools/skaffold/pkg/skaffold/yaml"
+	"github.com/GoogleContainerTools/skaffold/v2/pkg/skaffold/output/log"
+	"github.com/GoogleContainerTools/skaffold/v2/pkg/skaffold/walk"
+	"github.com/GoogleContainerTools/skaffold/v2/pkg/skaffold/yaml"
 )
 
 const (
@@ -317,6 +317,6 @@ func hasHiddenPrefix(s string) bool {
 }
 
 func SanitizeHelmTemplateValue(s string) string {
-	// replace commonly used image name chars that are illegal helm template chars "/" & "-" with "_"
-	return strings.ReplaceAll(strings.ReplaceAll(s, "-", "_"), "/", "_")
+	// replaces commonly used image name chars that are illegal go template chars -> replaces "/", "-" and "." with "_"
+	return strings.ReplaceAll(strings.ReplaceAll(strings.ReplaceAll(s, ".", "_"), "-", "_"), "/", "_")
 }

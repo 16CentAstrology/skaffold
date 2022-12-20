@@ -24,7 +24,7 @@ import (
 
 	"github.com/docker/cli/cli/config/configfile"
 
-	"github.com/GoogleContainerTools/skaffold/testutil"
+	"github.com/GoogleContainerTools/skaffold/v2/testutil"
 )
 
 func TestAutoConfigureGCRCredentialHelper(t *testing.T) {
@@ -99,7 +99,7 @@ func TestAutoConfigureGCRCredentialHelper(t *testing.T) {
 	for _, test := range tests {
 		testutil.Run(t, test.description, func(t *testutil.T) {
 			tmpDir := t.NewTempDir()
-			t.SetEnvs(map[string]string{"PATH": tmpDir.Root()})
+			t.Setenv("PATH", tmpDir.Root())
 
 			if test.helperInPath {
 				tmpDir.Write("docker-credential-gcloud", "")

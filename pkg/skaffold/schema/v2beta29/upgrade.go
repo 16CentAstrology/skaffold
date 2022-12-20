@@ -24,10 +24,10 @@ import (
 
 	"github.com/pkg/errors"
 
-	"github.com/GoogleContainerTools/skaffold/pkg/skaffold/output/log"
-	"github.com/GoogleContainerTools/skaffold/pkg/skaffold/schema/util"
-	next "github.com/GoogleContainerTools/skaffold/pkg/skaffold/schema/v3alpha1"
-	pkgutil "github.com/GoogleContainerTools/skaffold/pkg/skaffold/util"
+	"github.com/GoogleContainerTools/skaffold/v2/pkg/skaffold/output/log"
+	"github.com/GoogleContainerTools/skaffold/v2/pkg/skaffold/schema/util"
+	next "github.com/GoogleContainerTools/skaffold/v2/pkg/skaffold/schema/v3alpha1"
+	pkgutil "github.com/GoogleContainerTools/skaffold/v2/pkg/skaffold/util"
 )
 
 var migrations = map[string]string{
@@ -124,7 +124,7 @@ func upgradeOnePipeline(oldPipeline, newPipeline interface{}) error {
 					if svts == nil {
 						svts = map[string]string{}
 					}
-					svts[k+".tag"] = fmt.Sprintf("{{.IMAGE_TAG_%s}}@{{.IMAGE_DIGEST_%s}}", validV, validV)
+					svts[k+".tag"] = fmt.Sprintf("{{.IMAGE_TAG_%s}}", validV)
 					svts[k+".repository"] = fmt.Sprintf("{{.IMAGE_REPO_%s}}", validV)
 					if oldPL.Deploy.HelmDeploy.Releases[i].ImageStrategy.HelmConventionConfig.ExplicitRegistry {
 						// is 'helm' imageStrategy + explicitRegistry

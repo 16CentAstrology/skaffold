@@ -23,14 +23,13 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/GoogleContainerTools/skaffold/integration/skaffold"
-	"github.com/GoogleContainerTools/skaffold/testutil"
+	"github.com/GoogleContainerTools/skaffold/v2/integration/skaffold"
+	"github.com/GoogleContainerTools/skaffold/v2/testutil"
 )
 
 func TestVerifyPassingTestsWithEnvVar(t *testing.T) {
 	MarkIntegrationTest(t, CanRunWithoutGcp)
-	os.Setenv("FOO", "foo-var")
-	defer os.Unsetenv("FOO")
+	t.Setenv("FOO", "foo-var")
 	tmp := t.TempDir()
 	logFile := filepath.Join(tmp, uuid.New().String()+"logs.json")
 
@@ -59,8 +58,7 @@ func TestVerifyPassingTestsWithEnvVar(t *testing.T) {
 
 func TestVerifyOneTestFailsWithEnvVar(t *testing.T) {
 	MarkIntegrationTest(t, CanRunWithoutGcp)
-	os.Setenv("FOO", "foo-var")
-	defer os.Unsetenv("FOO")
+	t.Setenv("FOO", "foo-var")
 	tmp := t.TempDir()
 	logFile := filepath.Join(tmp, uuid.New().String()+"logs.json")
 
