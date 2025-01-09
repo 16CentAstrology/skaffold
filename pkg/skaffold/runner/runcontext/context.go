@@ -84,6 +84,22 @@ func (ps Pipelines) IsMultiPipeline() bool {
 	return len(ps.pipelines) > 1
 }
 
+// IsMultiPipeline returns true if there are more than one target kubernetes clusters.
+func (ps Pipelines) IsMultiCluster() bool {
+	var k string
+	for _, p := range ps.pipelines {
+		if p.Deploy.KubeContext == "" {
+			continue
+		}
+		if k == "" {
+			k = p.Deploy.KubeContext
+		} else if k != p.Deploy.KubeContext {
+			return true
+		}
+	}
+	return false
+}
+
 func (ps Pipelines) PortForwardResources() []*latest.PortForwardResource {
 	var pf []*latest.PortForwardResource
 	for _, p := range ps.pipelines {
@@ -218,6 +234,10 @@ func (rc *RunContext) StatusCheckTolerateFailures() bool {
 	return rc.Opts.TolerateFailuresStatusCheck || rc.Pipelines.StatusCheckTolerateFailures()
 }
 
+func (rc *RunContext) StatusCheckCRDsFile() string {
+	return rc.Opts.StatusCheckSelectorsFile
+}
+
 func (rc *RunContext) SkipTests() bool {
 	return rc.Opts.SkipTests
 }
@@ -278,15 +298,17 @@ func (rc *RunContext) GetNamespace() string {
 
 		return defaultNamespace
 	}
-	b, err := (&util.Commander{}).RunCmdOut(context.Background(), exec.Command("kubectl", "config", "view", "--minify", "-o", "jsonpath='{..namespace}'"))
+	b, err := util.RunCmdOutOnce(context.Background(), exec.Command("kubectl", "config", "view", "--minify", "-o", "jsonpath='{..namespace}'"))
 	if err != nil {
 		return rc.Opts.Namespace
 	}
 	return strings.Trim(string(b), "'")
 }
-func (rc *RunContext) AutoBuild() bool                               { return rc.Opts.AutoBuild }
-func (rc *RunContext) DisableMultiPlatformBuild() bool               { return rc.Opts.DisableMultiPlatformBuild }
-func (rc *RunContext) CheckClusterNodePlatforms() bool               { return rc.Opts.CheckClusterNodePlatforms }
+func (rc *RunContext) AutoBuild() bool                 { return rc.Opts.AutoBuild }
+func (rc *RunContext) DisableMultiPlatformBuild() bool { return rc.Opts.DisableMultiPlatformBuild }
+func (rc *RunContext) CheckClusterNodePlatforms() bool {
+	return rc.Opts.CheckClusterNodePlatforms && !rc.IsMultiCluster()
+}
 func (rc *RunContext) AutoDeploy() bool                              { return rc.Opts.AutoDeploy }
 func (rc *RunContext) AutoSync() bool                                { return rc.Opts.AutoSync }
 func (rc *RunContext) ContainerDebugging() bool                      { return rc.Opts.ContainerDebugging }
@@ -297,6 +319,7 @@ func (rc *RunContext) CustomLabels() []string                        { return rc
 func (rc *RunContext) CustomTag() string                             { return rc.Opts.CustomTag }
 func (rc *RunContext) DefaultRepo() *string                          { return rc.Cluster.DefaultRepo.Value() }
 func (rc *RunContext) MultiLevelRepo() *bool                         { return rc.Opts.MultiLevelRepo }
+func (rc *RunContext) IsMultiCluster() bool                          { return rc.Pipelines.IsMultiCluster() }
 func (rc *RunContext) Mode() config.RunMode                          { return rc.Opts.Mode() }
 func (rc *RunContext) DryRun() bool                                  { return rc.Opts.DryRun }
 func (rc *RunContext) ForceDeploy() bool                             { return rc.Opts.Force }

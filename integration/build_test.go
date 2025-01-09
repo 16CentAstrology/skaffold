@@ -89,6 +89,18 @@ func TestBuild(t *testing.T) {
 			args:        []string{"-p", "args", "-t", "foo"},
 			expectImage: imageName + "foo",
 		},
+		{
+			description: "envTemplate command tagger",
+			dir:         "testdata/tagPolicy",
+			args:        []string{"-p", "envTemplateCmd"},
+			expectImage: imageName + "1.0.0",
+		},
+		{
+			description: "envTemplate default tagger",
+			dir:         "testdata/tagPolicy",
+			args:        []string{"-p", "envTemplateDefault"},
+			expectImage: imageName + "bar",
+		},
 	}
 	for _, test := range tests {
 		t.Run(test.description, func(t *testing.T) {
@@ -296,7 +308,7 @@ func setupGitRepo(t *testing.T, dir string) {
 		cmd := exec.Command("git", args...)
 		cmd.Dir = dir
 		if buf, err := util.RunCmdOut(context.Background(), cmd); err != nil {
-			t.Logf(string(buf))
+			t.Log(string(buf))
 			t.Fatal(err)
 		}
 	}

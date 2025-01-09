@@ -75,7 +75,6 @@ func NewForConfig(ctx context.Context, runCtx *runcontext.RunContext) (*Skaffold
 	var deployer deploy.Deployer
 
 	hydrationDir, err := util.GetHydrationDir(runCtx.Opts, runCtx.WorkingDir, true, isKptRendererOrDeployerUsed(runCtx.Pipelines))
-
 	if err != nil {
 		return nil, fmt.Errorf("getting render output path: %w", err)
 	}
@@ -111,6 +110,13 @@ func NewForConfig(ctx context.Context, runCtx *runcontext.RunContext) (*Skaffold
 		return nil, fmt.Errorf("creating verifier: %w", err)
 	}
 
+	var acsRunner ActionsRunner
+	acsRunner, err = GetActionsRunner(ctx, runCtx, labeller, runCtx.VerifyDockerNetwork(), runCtx.Opts.VerifyEnvFile)
+	if err != nil {
+		endTrace(instrumentation.TraceEndError(err))
+		return nil, fmt.Errorf("creating actiosn runner: %w", err)
+	}
+
 	depLister := func(ctx context.Context, artifact *latest.Artifact) ([]string, error) {
 		ctx, endTrace := instrumentation.StartTrace(ctx, "NewForConfig_depLister")
 		defer endTrace()
@@ -138,7 +144,11 @@ func NewForConfig(ctx context.Context, runCtx *runcontext.RunContext) (*Skaffold
 	// the Cluster object on the RunContext, which in turn influences whether or not we will push images.
 	var builder build.Builder
 	builder, err = build.NewBuilderMux(runCtx, store, artifactCache, func(p latest.Pipeline) (build.PipelineBuilder, error) {
-		return GetBuilder(ctx, runCtx, store, sourceDependencies, p)
+		pb, err := GetBuilder(ctx, runCtx, store, sourceDependencies, p)
+		if err != nil {
+			return nil, err
+		}
+		return withPipelineBuildHooks(pb, p.Build.Hooks), nil
 	})
 	if err != nil {
 		endTrace(instrumentation.TraceEndError(err))
@@ -176,6 +186,7 @@ func NewForConfig(ctx context.Context, runCtx *runcontext.RunContext) (*Skaffold
 		intents:            intents,
 		isLocalImage:       isLocalImage,
 		verifier:           verifier,
+		actionsRunner:      acsRunner,
 	}, nil
 }
 
@@ -260,7 +271,7 @@ func isKptRendererOrDeployerUsed(pipelines runcontext.Pipelines) bool {
 		renderConfig := pipeline.Render
 		deployConfig := pipeline.Deploy
 
-		if renderConfig.Validate != nil || renderConfig.Transform != nil || renderConfig.Kpt != nil {
+		if renderConfig.Kpt != nil {
 			return true
 		}
 

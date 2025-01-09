@@ -33,6 +33,7 @@ const (
 	PortForward = Phase("PortForward")
 	Sync        = Phase("Sync")
 	DevInit     = Phase("DevInit")
+	Exec        = Phase("Exec")
 	Cleanup     = Phase("Cleanup")
 
 	// DefaultDockerfilePath is the dockerfile path is given relative to the
@@ -56,6 +57,9 @@ const (
 	DefaultSkaffoldDir = ".skaffold"
 	DefaultCacheFile   = "cache"
 	DefaultMetricFile  = "metrics"
+
+	// SkaffoldEnvFile is the file that is parsed to set environment variables in the process
+	SkaffoldEnvFile = "skaffold.env"
 
 	DefaultPortForwardAddress = "127.0.0.1"
 
@@ -128,16 +132,20 @@ var (
 	AllowedUserPattern = `^%v(\/.+)?$`
 
 	KustomizeFilePaths = []string{"kustomization.yaml", "kustomization.yml", "Kustomization"}
+
+	DefaultKanikoDigestFile = "/dev/termination-log"
 )
 
 var ImageRef = struct {
 	Repo   string
 	Tag    string
 	Digest string
+	Name   string
 }{
 	Repo:   "IMAGE_REPO",
 	Tag:    "IMAGE_TAG",
 	Digest: "IMAGE_DIGEST",
+	Name:   "IMAGE_NAME",
 }
 var DefaultKubectlManifests = []string{"k8s/*.yaml"}
 

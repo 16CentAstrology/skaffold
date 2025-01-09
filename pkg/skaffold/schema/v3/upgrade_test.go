@@ -19,7 +19,7 @@ package v3
 import (
 	"testing"
 
-	next "github.com/GoogleContainerTools/skaffold/v2/pkg/skaffold/schema/latest"
+	next "github.com/GoogleContainerTools/skaffold/v2/pkg/skaffold/schema/v4beta1"
 	"github.com/GoogleContainerTools/skaffold/v2/pkg/skaffold/yaml"
 	"github.com/GoogleContainerTools/skaffold/v2/testutil"
 )
@@ -121,7 +121,7 @@ profiles:
     deploy:
       kubectl: {}
 `
-	expected := `apiVersion: skaffold/v4beta2
+	expected := `apiVersion: skaffold/v4beta1
 kind: Config
 build:
   artifacts:

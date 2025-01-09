@@ -22,6 +22,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 
+	"github.com/GoogleContainerTools/skaffold/v2/pkg/skaffold/debug/types"
 	"github.com/GoogleContainerTools/skaffold/v2/testutil"
 )
 
@@ -55,6 +56,31 @@ func TestExtractDebugSpecs(t *testing.T) {
 			} else {
 				t.CheckDeepEqual(*test.result, *extractPythonDebugSpec(test.in), cmp.AllowUnexported(pythonSpec{debugger: ptvsd}))
 			}
+		})
+	}
+}
+
+func TestPythonTransformer_MatchRuntime(t *testing.T) {
+	tests := []struct {
+		description string
+		source      ImageConfiguration
+		result      bool
+	}{
+		{description: "node non-match",
+			source: ImageConfiguration{RuntimeType: types.Runtimes.NodeJS},
+			result: false,
+		},
+		{description: "python match",
+			source: ImageConfiguration{RuntimeType: types.Runtimes.Python},
+			result: true,
+		},
+	}
+
+	for _, test := range tests {
+		testutil.Run(t, test.description, func(t *testutil.T) {
+			result := pythonTransformer{}.MatchRuntime(test.source)
+
+			t.CheckDeepEqual(test.result, result)
 		})
 	}
 }

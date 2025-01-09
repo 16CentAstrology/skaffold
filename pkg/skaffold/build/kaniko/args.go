@@ -59,6 +59,9 @@ func Args(artifact *latest.KanikoArtifact, tag, context string) ([]string, error
 		if artifact.Cache.CacheCopyLayers {
 			args = append(args, CacheCopyLayersFlag)
 		}
+		if artifact.Cache.CacheRunLayers != nil {
+			args = append(args, fmt.Sprintf("%s=%t", CacheRunLayersFlag, *artifact.Cache.CacheRunLayers))
+		}
 	}
 
 	if artifact.Target != "" {
@@ -68,6 +71,12 @@ func Args(artifact *latest.KanikoArtifact, tag, context string) ([]string, error
 	if artifact.Cleanup {
 		args = append(args, CleanupFlag)
 	}
+
+	var tags []string
+	for _, r := range artifact.Destination {
+		tags = append(tags, DestinationFlag, r)
+	}
+	args = append(args, tags...)
 
 	if artifact.DigestFile != "" {
 		args = append(args, DigestFileFlag, artifact.DigestFile)
@@ -99,10 +108,6 @@ func Args(artifact *latest.KanikoArtifact, tag, context string) ([]string, error
 
 	if artifact.LogTimestamp {
 		args = append(args, LogTimestampFlag)
-	}
-
-	if artifact.NoPush {
-		args = append(args, NoPushFlag)
 	}
 
 	if artifact.OCILayoutPath != "" {
@@ -173,6 +178,12 @@ func Args(artifact *latest.KanikoArtifact, tag, context string) ([]string, error
 		sRegArgs = append(sRegArgs, SkipTLSVerifyRegistryFlag, r)
 	}
 	args = append(args, sRegArgs...)
+
+	var ignPathArgs []string
+	for _, r := range artifact.IgnorePaths {
+		ignPathArgs = append(ignPathArgs, IgnorePathFlag, r)
+	}
+	args = append(args, ignPathArgs...)
 
 	registryCertificate, err := util.MapToFlag(artifact.RegistryCertificate, RegistryCertificateFlag)
 	if err != nil {

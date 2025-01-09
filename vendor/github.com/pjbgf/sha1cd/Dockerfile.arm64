@@ -1,0 +1,23 @@
+FROM golang:1.23@sha256:a7f2fc9834049c1f5df787690026a53738e55fc097cd8a4a93faa3e06c67ee32
+
+ENV GOOS=linux
+ENV GOARCH=arm64
+ENV CGO_ENABLED=1
+ENV CC=aarch64-linux-gnu-gcc
+ENV PATH="/go/bin/${GOOS}_${GOARCH}:${PATH}"
+ENV PKG_CONFIG_PATH=/usr/lib/aarch64-linux-gnu/pkgconfig
+
+# install build & runtime dependencies
+RUN dpkg --add-architecture arm64 \
+    && apt update \
+    && apt install -y --no-install-recommends \
+        gcc-aarch64-linux-gnu \
+        libc6-dev-arm64-cross \
+        pkg-config \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY . /src/workdir
+
+WORKDIR /src/workdir
+
+RUN go build ./...

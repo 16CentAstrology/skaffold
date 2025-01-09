@@ -48,6 +48,7 @@ type SkaffoldOptions struct {
 	ForceLoadImages             bool
 	IterativeStatusCheck        bool
 	FastFailStatusCheck         bool
+	KeepRunningOnFailure        bool
 	TolerateFailuresStatusCheck bool
 	Notification                bool
 	NoPrune                     bool
@@ -87,9 +88,10 @@ type SkaffoldOptions struct {
 	DigestSource                string
 	Command                     string
 	MinikubeProfile             string
-	RepoCacheDir                string
+	RemoteCacheDir              string
 	TransformRulesFile          string
 	VerifyDockerNetwork         string
+	VerifyEnvFile               string
 	CustomLabels                []string
 	TargetImages                []string
 	Profiles                    []string
@@ -108,6 +110,9 @@ type SkaffoldOptions struct {
 	DefaultRepo                 StringOrUndefined
 	SyncRemoteCache             SyncRemoteCacheOption
 	WaitForDeletions            WaitForDeletions
+	ManifestsOverrides          []string
+	ManifestsValueFile          string
+	StatusCheckSelectorsFile    string
 }
 
 type RunMode string

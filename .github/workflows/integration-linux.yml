@@ -16,25 +16,33 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        kustomize_version: [3.5.4]
-        ko_version: [0.4.0]
-        kompose_version: [1.21.0]
-        kpt_version: [1.0.0-beta.13]
-        gcloud_sdk_version: [410.0.0]
-        container_structure_tests_version: [1.8.0]
+        kustomize_version: [5.5.0]
+        ko_version: [0.17.1]
+        kompose_version: [1.34.0]
+        kpt_version: [1.0.0-beta.55]
+        minikube_version: [1.34.0]
+        gcloud_sdk_version: [502.0.0]
+        container_structure_tests_version: [1.19.3]
+        java: [21]
         integration_test_partitions: [0, 1, 2, 3]
     steps:
 
     - name: Check out code into the Go module directory
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
       with:
         fetch-depth: 0
 
     - name: Set up Go
-      uses: actions/setup-go@v3
+      uses: actions/setup-go@v5
       with:
-        go-version: 1.19.*
+        go-version: 1.23.*
       id: go
+
+    - name: Set up Java
+      uses: actions/setup-java@v4
+      with:
+        distribution: 'temurin'
+        java-version: ${{ matrix.java }}
 
     # Retrieve build locations with `go env`
     # <https://markphelps.me/posts/speed-up-your-go-builds-with-actions-cache/>
@@ -43,7 +51,7 @@ jobs:
         echo "go-build=$(go env GOCACHE)" >> $GITHUB_OUTPUT
         echo "go-mod=$(go env GOMODCACHE)" >> $GITHUB_OUTPUT
 
-    - uses: actions/cache@v3
+    - uses: actions/cache@v4
       with:
         path: |
           ${{ steps.go-cache-paths.outputs.go-build }}
@@ -100,7 +108,7 @@ jobs:
     - name: Install Container Structure Test
       if: ${{ env.NON_DOCS_FILES_CHANGED != 0 }}
       run: |
-        wget -O container-structure-test https://storage.googleapis.com/container-structure-test/v${{ matrix.container_structure_tests_version }}/container-structure-test-linux-amd64 && chmod +x container-structure-test
+        wget -O container-structure-test https://github.com/GoogleContainerTools/container-structure-test/releases/download/v${{ matrix.container_structure_tests_version }}/container-structure-test-linux-amd64 && chmod +x container-structure-test
         sudo mv container-structure-test /usr/local/bin/
 
     - name: Setup other files and permissions
@@ -111,10 +119,10 @@ jobs:
         echo '{}' > ${HOME}/.docker/config.json
         mkdir -p ${HOME}/.m2/ && cp ./hack/maven/settings.xml ${HOME}/.m2/settings.xml
         
-    - name: Install Minikube from minikube master branch @HEAD and start cluster
+    - name: Install Minikube and start cluster
       if: ${{ env.NON_DOCS_FILES_CHANGED != 0 }}
       run: |
-        curl -Lo minikube https://storage.googleapis.com/minikube-builds/master/minikube-linux-amd64
+        curl -Lo minikube https://github.com/kubernetes/minikube/releases/download/v${{ matrix.minikube_version }}/minikube-linux-amd64
         sudo install minikube /usr/local/bin/minikube
         minikube start --profile=minikube --driver=docker
 

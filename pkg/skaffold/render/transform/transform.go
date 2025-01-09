@@ -17,12 +17,17 @@ limitations under the License.
 package transform
 
 import (
+	"bytes"
+	"context"
 	"fmt"
+	"os/exec"
 	"strings"
 
 	sErrors "github.com/GoogleContainerTools/skaffold/v2/pkg/skaffold/errors"
+	"github.com/GoogleContainerTools/skaffold/v2/pkg/skaffold/kubernetes/manifest"
 	"github.com/GoogleContainerTools/skaffold/v2/pkg/skaffold/render/kptfile"
 	"github.com/GoogleContainerTools/skaffold/v2/pkg/skaffold/schema/latest"
+	"github.com/GoogleContainerTools/skaffold/v2/pkg/skaffold/util"
 	"github.com/GoogleContainerTools/skaffold/v2/proto/v1"
 )
 
@@ -30,7 +35,7 @@ var (
 	allowListedTransformer = []string{"set-labels"}
 	transformerAllowlist   = map[string]kptfile.Function{
 		"set-namespace": {
-			Image:     "gcr.io/kpt-fn/set-namespace",
+			Image:     "gcr.io/kpt-fn/set-namespace:v0.4.1",
 			ConfigMap: map[string]string{},
 		},
 		"set-labels": {
@@ -47,6 +52,18 @@ var (
 		},
 		"apply-setters": {
 			Image:     "gcr.io/kpt-fn/apply-setters:unstable",
+			ConfigMap: map[string]string{},
+		},
+		"ensure-name-substring": {
+			Image:     "gcr.io/kpt-fn/ensure-name-substring:v0.2.0",
+			ConfigMap: map[string]string{},
+		},
+		"search-replace": {
+			Image:     "gcr.io/kpt-fn/search-replace:v0.2.0",
+			ConfigMap: map[string]string{},
+		},
+		"set-enforcement-action": {
+			Image:     "gcr.io/kpt-fn/set-enforcement-action:v0.1.0",
 			ConfigMap: map[string]string{},
 		},
 	}
@@ -89,6 +106,62 @@ func (v *Transformer) GetDeclarativeTransformers() ([]kptfile.Function, error) {
 	return v.kptFn, nil
 }
 
+func (v *Transformer) Append(ts ...latest.Transformer) error {
+	kptfns, err := validateTransformers(ts)
+	if err != nil {
+		return err
+	}
+	v.config = append(v.config, ts...)
+	v.kptFn = append(v.kptFn, kptfns...)
+	return nil
+}
+
+func (v *Transformer) IsEmpty() bool {
+	return len(v.config) == 0
+}
+
+func (v *Transformer) Transform(ctx context.Context, ml manifest.ManifestList) (manifest.ManifestList, error) {
+	if v.kptFn == nil {
+		return ml, nil
+	}
+	var err error
+	for _, transformer := range v.kptFn {
+		slice := util.EnvMapToSlice(transformer.ConfigMap, "=")
+		args := []string{"fn", "eval", "-i", transformer.Image, "-o", "unwrap", "-", "--"}
+		args = append(args, slice...)
+		cmd := exec.CommandContext(ctx, "kpt", args...)
+		reader := ml.Reader()
+		buffer := &bytes.Buffer{}
+		cmd.Stdin = reader
+		cmd.Stdout = buffer
+
+		err := util.RunCmd(ctx, cmd)
+		if err != nil {
+			return ml, fmt.Errorf("failed to run transfomer: %s, err: %v", transformer.Image, err)
+		}
+		ml, err = manifest.Load(buffer)
+		if err != nil {
+			return ml, err
+		}
+	}
+	return ml, err
+}
+
+// TransformPath transform manifests in-place in filepath.
+func (v *Transformer) TransformPath(path string) error {
+	for _, transformer := range v.kptFn {
+		kvs := util.EnvMapToSlice(transformer.ConfigMap, "=")
+		args := []string{"fn", "eval", "-i", transformer.Image, path, "--"}
+		args = append(args, kvs...)
+		command := exec.Command("kpt", args...)
+		err := command.Run()
+		if err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func validateTransformers(config []latest.Transformer) ([]kptfile.Function, error) {
 	var newFuncs []kptfile.Function
 	for _, c := range config {
@@ -109,6 +182,7 @@ func validateTransformers(config []latest.Transformer) ([]kptfile.Function, erro
 					},
 				})
 		}
+		newFunc = kptfile.Function{Image: newFunc.Image, ConfigMap: map[string]string{}}
 		if c.ConfigMap != nil {
 			for _, stringifiedData := range c.ConfigMap {
 				index := strings.Index(stringifiedData, ":")
