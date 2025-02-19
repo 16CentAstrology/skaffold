@@ -100,7 +100,7 @@ func GetHandler(conn jsonrpc2.Conn, out io.Writer, opts config.SkaffoldOptions, 
 			err := recover()
 			if err != nil {
 				log.Entry(ctx).Errorf("recovered from panic at %s: %v\n", req.Method(), err)
-				log.Entry(ctx).Errorf("stacktrace from panic: \n" + string(debug.Stack()))
+				log.Entry(ctx).Errorf("stacktrace from panic: \n%s", string(debug.Stack()))
 			}
 		}()
 		log.Entry(ctx).Debugf("req.Method():  %q\n", req.Method())
@@ -192,6 +192,7 @@ func GetHandler(conn jsonrpc2.Conn, out io.Writer, opts config.SkaffoldOptions, 
 	}
 }
 
+//nolint:unparam
 func (h *Handler) updateDocument(ctx context.Context, documentURI, content string) error {
 	h.documentManager.UpdateDocument(documentURI, content)
 	log.Entry(ctx).Debugf("updated document for %q with %d chars\n", documentURI, len(content))
@@ -289,11 +290,11 @@ func lintFiles(ctx context.Context, runCtx docker.Config,
 	// TODO(aaron-prindle) currently lint checks only filesystem, instead need to check VFS w/ documentManager info
 	// need to make sure something like k8a-manifest.yaml comes from afero VFS and not os FS always
 	results, err := lint.GetAllLintResults(ctx, lint.Options{
-		Filename:     opts.ConfigurationFile,
-		RepoCacheDir: opts.RepoCacheDir,
-		OutFormat:    lint.PlainTextOutput,
-		Modules:      opts.ConfigurationFilter,
-		Profiles:     opts.Profiles,
+		Filename:       opts.ConfigurationFile,
+		RemoteCacheDir: opts.RemoteCacheDir,
+		OutFormat:      lint.PlainTextOutput,
+		Modules:        opts.ConfigurationFilter,
+		Profiles:       opts.Profiles,
 	}, runCtx)
 
 	if err != nil {

@@ -19,13 +19,13 @@ package v4beta1
 import (
 	"encoding/json"
 
+	"gopkg.in/yaml.v3"
 	v1 "k8s.io/api/core/v1"
-	"sigs.k8s.io/kustomize/kyaml/yaml"
 
 	"github.com/GoogleContainerTools/skaffold/v2/pkg/skaffold/schema/util"
 )
 
-// This config version is not yet released, it is SAFE TO MODIFY the structs in this file.
+// !!! WARNING !!! This config version is already released, please DO NOT MODIFY the structs in this file.
 const Version string = "skaffold/v4beta1"
 
 // NewSkaffoldConfig creates a SkaffoldConfig

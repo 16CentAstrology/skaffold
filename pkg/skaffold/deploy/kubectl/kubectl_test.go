@@ -23,7 +23,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -40,6 +39,11 @@ import (
 	"github.com/GoogleContainerTools/skaffold/v2/testutil"
 )
 
+type gcsClientMock struct{}
+
+func (g gcsClientMock) DownloadRecursive(ctx context.Context, src, dst string) error {
+	return nil
+}
 func TestKubectlV1RenderDeploy(t *testing.T) {
 	tests := []struct {
 		description                 string
@@ -58,6 +62,8 @@ func TestKubectlV1RenderDeploy(t *testing.T) {
 			kubectl:          latest.KubectlDeploy{},
 			shouldErr:        true,
 			waitForDeletions: true,
+			commands: testutil.
+				CmdRunOutOnce("kubectl config view --minify -o jsonpath='{..namespace}'", "default"),
 		},
 		{
 			description: "deploy success (disable validation)",
@@ -71,7 +77,8 @@ func TestKubectlV1RenderDeploy(t *testing.T) {
 			},
 			commands: testutil.
 				CmdRunOut("kubectl --context kubecontext --namespace testNamespace get -f - --ignore-not-found -ojson", "").
-				AndRun("kubectl --context kubecontext --namespace testNamespace apply -f - --validate=false"),
+				AndRun("kubectl --context kubecontext --namespace testNamespace apply -f - --validate=false").
+				AndRunOutOnce("kubectl config view --minify -o jsonpath='{..namespace}'", "testNamespace"),
 			builds: []graph.Artifact{{
 				ImageName: "leeroy-web",
 				Tag:       "leeroy-web:v1",
@@ -85,7 +92,8 @@ func TestKubectlV1RenderDeploy(t *testing.T) {
 			},
 			commands: testutil.
 				CmdRunOut("kubectl --context kubecontext --namespace testNamespace get -f - --ignore-not-found -ojson", "").
-				AndRun("kubectl --context kubecontext --namespace testNamespace apply -f - --force --grace-period=0"),
+				AndRun("kubectl --context kubecontext --namespace testNamespace apply -f - --force --grace-period=0").
+				AndRunOutOnce("kubectl config view --minify -o jsonpath='{..namespace}'", "testNamespace"),
 			builds: []graph.Artifact{{
 				ImageName: "leeroy-web",
 				Tag:       "leeroy-web:v1",
@@ -100,7 +108,8 @@ func TestKubectlV1RenderDeploy(t *testing.T) {
 			},
 			commands: testutil.
 				CmdRunOut("kubectl --context kubecontext --namespace testNamespace get -f - --ignore-not-found -ojson", "").
-				AndRun("kubectl --context kubecontext --namespace testNamespace apply -f -"),
+				AndRun("kubectl --context kubecontext --namespace testNamespace apply -f -").
+				AndRunOutOnce("kubectl config view --minify -o jsonpath='{..namespace}'", "testNamespace"),
 			builds: []graph.Artifact{{
 				ImageName: "leeroy-web",
 				Tag:       "leeroy-web:v1",
@@ -114,7 +123,8 @@ func TestKubectlV1RenderDeploy(t *testing.T) {
 			},
 			commands: testutil.
 				CmdRunOut("kubectl --context kubecontext --namespace testNamespace get -f - --ignore-not-found -ojson", "").
-				AndRun("kubectl --context kubecontext --namespace testNamespace apply -f -"),
+				AndRun("kubectl --context kubecontext --namespace testNamespace apply -f -").
+				AndRunOutOnce("kubectl config view --minify -o jsonpath='{..namespace}'", "testNamespace"),
 			builds: []graph.Artifact{{
 				ImageName: "leeroy-web",
 				Tag:       "leeroy-web:v1",
@@ -128,7 +138,8 @@ func TestKubectlV1RenderDeploy(t *testing.T) {
 			},
 			commands: testutil.
 				CmdRunOut("kubectl --context kubecontext get -f - --ignore-not-found -ojson", "").
-				AndRun("kubectl --context kubecontext apply -f -"),
+				AndRun("kubectl --context kubecontext apply -f -").
+				AndRunOutOnce("kubectl config view --minify -o jsonpath='{..namespace}'", "default"),
 			builds: []graph.Artifact{{
 				ImageName: "leeroy-web",
 				Tag:       "leeroy-web:v1",
@@ -146,7 +157,8 @@ func TestKubectlV1RenderDeploy(t *testing.T) {
 			},
 			commands: testutil.
 				CmdRunOut("kubectl --context kubecontext --namespace testNamespace2 get -f - --ignore-not-found -ojson", "").
-				AndRun("kubectl --context kubecontext --namespace testNamespace2 apply -f -"),
+				AndRun("kubectl --context kubecontext --namespace testNamespace2 apply -f -").
+				AndRunOutOnce("kubectl config view --minify -o jsonpath='{..namespace}'", "testNamespace2"),
 			builds: []graph.Artifact{{
 				ImageName: "leeroy-web",
 				Tag:       "leeroy-web:v1",
@@ -164,7 +176,8 @@ func TestKubectlV1RenderDeploy(t *testing.T) {
 			},
 			commands: testutil.
 				CmdRunOut("kubectl --context kubecontext --namespace testNamespace get -f - --ignore-not-found -ojson", "").
-				AndRunErr("kubectl --context kubecontext --namespace testNamespace apply -f -", fmt.Errorf("")),
+				AndRunErr("kubectl --context kubecontext --namespace testNamespace apply -f -", fmt.Errorf("")).
+				AndRunOutOnce("kubectl config view --minify -o jsonpath='{..namespace}'", "testNamespace"),
 			builds: []graph.Artifact{{
 				ImageName: "leeroy-web",
 				Tag:       "leeroy-web:v1",
@@ -186,7 +199,8 @@ func TestKubectlV1RenderDeploy(t *testing.T) {
 			},
 			commands: testutil.
 				CmdRunOut("kubectl --context kubecontext --namespace testNamespace get -v=0 -f - --ignore-not-found -ojson", "").
-				AndRunErr("kubectl --context kubecontext --namespace testNamespace apply -v=0 --overwrite=true -f -", fmt.Errorf("")),
+				AndRunErr("kubectl --context kubecontext --namespace testNamespace apply -v=0 --overwrite=true -f -", fmt.Errorf("")).
+				AndRunOutOnce("kubectl config view --minify -o jsonpath='{..namespace}'", "testNamespace"),
 			builds: []graph.Artifact{{
 				ImageName: "leeroy-web",
 				Tag:       "leeroy-web:v1",
@@ -220,7 +234,7 @@ func TestKubectlV1RenderDeploy(t *testing.T) {
 				},
 				RunContext: runcontext.RunContext{Opts: config.SkaffoldOptions{
 					Namespace: skaffoldNamespaceOption}},
-			}, &label.DefaultLabeller{}, &test.kubectl, nil, configName)
+			}, &label.DefaultLabeller{}, &test.kubectl, nil, configName, nil)
 			t.RequireNoError(err)
 
 			rc := latest.RenderConfig{Generate: test.generate}
@@ -235,7 +249,7 @@ func TestKubectlV1RenderDeploy(t *testing.T) {
 				},
 			}
 
-			r, err := kubectlR.New(mockCfg, rc, map[string]string{}, configName, "")
+			r, err := kubectlR.New(mockCfg, rc, map[string]string{}, configName, skaffoldNamespaceOption, nil, !test.skipSkaffoldNamespaceOption)
 			t.CheckNoError(err)
 			var b bytes.Buffer
 			m, errR := r.Render(context.Background(), &b, []graph.Artifact{{ImageName: "leeroy-web", Tag: "leeroy-web:v1"}},
@@ -316,7 +330,7 @@ func TestKubectlCleanup(t *testing.T) {
 			k, err := NewDeployer(&kubectlConfig{
 				workingDir: ".",
 				RunContext: runcontext.RunContext{Opts: config.SkaffoldOptions{Namespace: TestNamespace}},
-			}, &label.DefaultLabeller{}, &test.kubectl, nil, configName)
+			}, &label.DefaultLabeller{}, &test.kubectl, nil, configName, nil)
 			t.RequireNoError(err)
 			rc := latest.RenderConfig{Generate: test.generate}
 			mockCfg := &kubectlConfig{
@@ -330,7 +344,7 @@ func TestKubectlCleanup(t *testing.T) {
 				},
 			}
 
-			r, err := kubectlR.New(mockCfg, rc, map[string]string{}, configName, "")
+			r, err := kubectlR.New(mockCfg, rc, map[string]string{}, configName, TestNamespace, nil, true)
 			t.CheckNoError(err)
 			var b bytes.Buffer
 			m, errR := r.Render(context.Background(), &b, []graph.Artifact{{ImageName: "leeroy-web", Tag: "leeroy-web:v1"}},
@@ -364,7 +378,7 @@ func TestKubectlRedeploy(t *testing.T) {
 				Enabled: true,
 				Delay:   0 * time.Millisecond,
 				Max:     10 * time.Second},
-		}, &label.DefaultLabeller{}, &latest.KubectlDeploy{}, nil, configName)
+		}, &label.DefaultLabeller{}, &latest.KubectlDeploy{}, nil, configName, nil)
 		t.RequireNoError(err)
 
 		// Deploy both manifests
@@ -440,7 +454,7 @@ func TestKubectlWaitForDeletions(t *testing.T) {
 				Delay:   0 * time.Millisecond,
 				Max:     10 * time.Second,
 			},
-		}, &label.DefaultLabeller{}, &latest.KubectlDeploy{}, nil, configName)
+		}, &label.DefaultLabeller{}, &latest.KubectlDeploy{}, nil, configName, nil)
 		t.RequireNoError(err)
 
 		var out bytes.Buffer
@@ -480,7 +494,7 @@ func TestKubectlWaitForDeletionsFails(t *testing.T) {
 				Delay:   10 * time.Second,
 				Max:     100 * time.Millisecond,
 			},
-		}, &label.DefaultLabeller{}, &latest.KubectlDeploy{}, nil, configName)
+		}, &label.DefaultLabeller{}, &latest.KubectlDeploy{}, nil, configName, nil)
 		t.RequireNoError(err)
 
 		m, err := manifest.Load(bytes.NewReader([]byte(DeploymentWebYAMLv1)))
@@ -510,13 +524,15 @@ func TestGCSManifests(t *testing.T) {
 				RawK8s: []string{"gs://dev/deployment.yaml"},
 			},
 			commands: testutil.
-				CmdRunOut(fmt.Sprintf("gsutil cp -r %s %s", "gs://dev/deployment.yaml", filepath.Join(manifest.ManifestTmpDir, manifest.ManifestsFromGCS)), "log").
-				AndRun("kubectl --context kubecontext --namespace testNamespace apply -f -"),
+				CmdRun("kubectl --context kubecontext --namespace testNamespace apply -f -"),
 		}}
 	for _, test := range tests {
 		testutil.Run(t, test.description, func(t *testutil.T) {
 			t.Override(&client.Client, deployutil.MockK8sClient)
 			t.Override(&util.DefaultExecCommand, test.commands)
+			t.Override(&manifest.GetGCSClient, func() manifest.GCSClient {
+				return gcsClientMock{}
+			})
 			if err := os.MkdirAll(manifest.ManifestTmpDir, os.ModePerm); err != nil {
 				t.Fatal(err)
 			}
@@ -534,7 +550,7 @@ func TestGCSManifests(t *testing.T) {
 					}, []string{configName}),
 				},
 			}
-			r, err := kubectlR.New(mockCfg, rc, map[string]string{}, configName, "")
+			r, err := kubectlR.New(mockCfg, rc, map[string]string{}, configName, TestNamespace, nil, true)
 			t.CheckNoError(err)
 			var b bytes.Buffer
 			m, errR := r.Render(context.Background(), &b, []graph.Artifact{{ImageName: "leeroy-web", Tag: "leeroy-web:v1"}},
@@ -544,7 +560,7 @@ func TestGCSManifests(t *testing.T) {
 			k, err := NewDeployer(&kubectlConfig{
 				workingDir: ".",
 				RunContext: runcontext.RunContext{Opts: config.SkaffoldOptions{Namespace: TestNamespace}},
-			}, &label.DefaultLabeller{}, &latest.KubectlDeploy{}, nil, configName)
+			}, &label.DefaultLabeller{}, &latest.KubectlDeploy{}, nil, configName, nil)
 			t.RequireNoError(err)
 
 			err = k.Deploy(context.Background(), io.Discard, nil, m)
@@ -581,7 +597,7 @@ func TestHasRunnableHooks(t *testing.T) {
 	}
 	for _, test := range tests {
 		testutil.Run(t, test.description, func(t *testutil.T) {
-			k, err := NewDeployer(&kubectlConfig{}, &label.DefaultLabeller{}, &test.cfg, nil, "default")
+			k, err := NewDeployer(&kubectlConfig{}, &label.DefaultLabeller{}, &test.cfg, nil, "default", nil)
 			t.RequireNoError(err)
 			actual := k.HasRunnableHooks()
 			t.CheckDeepEqual(test.expected, actual)

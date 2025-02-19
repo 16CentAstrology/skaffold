@@ -18,7 +18,6 @@ package util
 
 import (
 	"context"
-	"io"
 	"os"
 	"strings"
 
@@ -28,7 +27,6 @@ import (
 	"github.com/GoogleContainerTools/skaffold/v2/pkg/skaffold/instrumentation"
 	"github.com/GoogleContainerTools/skaffold/v2/pkg/skaffold/kubernetes/manifest"
 	"github.com/GoogleContainerTools/skaffold/v2/pkg/skaffold/render"
-	"github.com/GoogleContainerTools/skaffold/v2/pkg/skaffold/render/generate"
 	"github.com/GoogleContainerTools/skaffold/v2/pkg/skaffold/schema/latest"
 	"github.com/GoogleContainerTools/skaffold/v2/pkg/skaffold/yaml"
 )
@@ -40,35 +38,30 @@ type GenerateHydratedManifestsOptions struct {
 	EnableGKEARMNodeToleration bool
 	Offline                    bool
 	KubeContext                string
+	InjectNamespace            bool
 }
 
-func GenerateHydratedManifests(ctx context.Context, out io.Writer, builds []graph.Artifact, g generate.Generator, labels map[string]string, ns string, opts GenerateHydratedManifestsOptions) (manifest.ManifestList, error) {
-	// Generate manifests.
-	rCtx, endTrace := instrumentation.StartTrace(ctx, "Render_generateManifest")
-	manifests, err := g.Generate(rCtx, out)
-	if err != nil {
-		return nil, err
-	}
-	endTrace()
-
+// BaseTransform skaffold controlled manifests fields
+func BaseTransform(ctx context.Context, manifests manifest.ManifestList, builds []graph.Artifact, opts GenerateHydratedManifestsOptions, labels map[string]string, ns string) (manifest.ManifestList, error) {
 	// Update image labels.renderer_test.go
-	rCtx, endTrace = instrumentation.StartTrace(ctx, "Render_setSkaffoldLabels")
+	rCtx, endTrace := instrumentation.StartTrace(ctx, "Render_setSkaffoldLabels")
 
-	manifests, err = manifests.ReplaceImages(rCtx, builds, manifest.NewResourceSelectorImages(opts.TransformAllowList, opts.TransformDenylist))
+	manifests, err := manifests.ReplaceImages(rCtx, builds, manifest.NewResourceSelectorImages(opts.TransformAllowList, opts.TransformDenylist))
 	if err != nil {
-		return nil, err
+		return manifests, err
 	}
 	rs := manifest.NewResourceSelectorLabels(opts.TransformAllowList, opts.TransformDenylist)
 
 	if manifests, err = manifests.SetLabels(labels, manifest.NewResourceSelectorLabels(opts.TransformAllowList, opts.TransformDenylist)); err != nil {
-		return nil, err
+		return manifests, err
 	}
 
-	if manifests, err = manifests.SetNamespace(ns, rs); err != nil {
-		return nil, err
+	if !opts.Offline && opts.InjectNamespace {
+		if manifests, err = manifests.SetNamespace(ns, rs); err != nil {
+			return manifests, err
+		}
+		endTrace()
 	}
-	endTrace()
-
 	var platforms manifest.PodPlatforms
 
 	if opts.EnableGKEARMNodeToleration && isGKECluster(opts.KubeContext) {

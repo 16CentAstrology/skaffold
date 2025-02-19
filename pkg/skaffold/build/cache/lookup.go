@@ -23,6 +23,7 @@ import (
 	"sync"
 
 	v1 "github.com/google/go-containerregistry/pkg/v1"
+	specs "github.com/opencontainers/image-spec/specs-go/v1"
 
 	"github.com/GoogleContainerTools/skaffold/v2/pkg/skaffold/docker"
 	"github.com/GoogleContainerTools/skaffold/v2/pkg/skaffold/instrumentation"
@@ -33,7 +34,7 @@ import (
 	"github.com/GoogleContainerTools/skaffold/v2/pkg/skaffold/util"
 )
 
-func (c *cache) lookupArtifacts(ctx context.Context, tags tag.ImageTags, platforms platform.Resolver, artifacts []*latest.Artifact) []cacheDetails {
+func (c *cache) lookupArtifacts(ctx context.Context, out io.Writer, tags tag.ImageTags, platforms platform.Resolver, artifacts []*latest.Artifact) []cacheDetails {
 	details := make([]cacheDetails, len(artifacts))
 	// Create a new `artifactHasher` on every new dev loop.
 	// This way every artifact hash is calculated at most once in a single dev loop, and recalculated on every dev loop.
@@ -47,7 +48,7 @@ func (c *cache) lookupArtifacts(ctx context.Context, tags tag.ImageTags, platfor
 
 		i := i
 		go func() {
-			details[i] = c.lookup(ctx, artifacts[i], tags[artifacts[i].ImageName], platforms, h)
+			details[i] = c.lookup(ctx, out, artifacts[i], tags, platforms, h)
 			wg.Done()
 		}()
 	}
@@ -56,13 +57,14 @@ func (c *cache) lookupArtifacts(ctx context.Context, tags tag.ImageTags, platfor
 	return details
 }
 
-func (c *cache) lookup(ctx context.Context, a *latest.Artifact, tag string, platforms platform.Resolver, h artifactHasher) cacheDetails {
+func (c *cache) lookup(ctx context.Context, out io.Writer, a *latest.Artifact, tags map[string]string, platforms platform.Resolver, h artifactHasher) cacheDetails {
+	tag := tags[a.ImageName]
 	ctx, endTrace := instrumentation.StartTrace(ctx, "lookup_CacheLookupOneArtifact", map[string]string{
 		"ImageName": instrumentation.PII(a.ImageName),
 	})
 	defer endTrace()
 
-	hash, err := h.hash(ctx, a, platforms)
+	hash, err := h.hash(ctx, out, a, platforms, tag)
 	if err != nil {
 		return failed{err: fmt.Errorf("getting hash for artifact %q: %s", a.ImageName, err)}
 	}
@@ -90,7 +92,7 @@ func (c *cache) lookup(ctx context.Context, a *latest.Artifact, tag string, plat
 	} else if isLocal {
 		return c.lookupLocal(ctx, hash, tag, entry)
 	}
-	return c.lookupRemote(ctx, hash, tag, entry)
+	return c.lookupRemote(ctx, hash, tag, pls.Platforms, entry)
 }
 
 func (c *cache) lookupLocal(ctx context.Context, hash, tag string, entry ImageDetails) cacheDetails {
@@ -118,7 +120,7 @@ func (c *cache) lookupLocal(ctx context.Context, hash, tag string, entry ImageDe
 	return needsBuilding{hash: hash}
 }
 
-func (c *cache) lookupRemote(ctx context.Context, hash, tag string, entry ImageDetails) cacheDetails {
+func (c *cache) lookupRemote(ctx context.Context, hash, tag string, platforms []specs.Platform, entry ImageDetails) cacheDetails {
 	if remoteDigest, err := docker.RemoteDigest(tag, c.cfg, nil); err == nil {
 		// Image exists remotely with the same tag and digest
 		if remoteDigest == entry.Digest {
@@ -130,7 +132,7 @@ func (c *cache) lookupRemote(ctx context.Context, hash, tag string, entry ImageD
 	fqn := tag + "@" + entry.Digest // Actual tag will be ignored but we need the registry and the digest part of it.
 	if remoteDigest, err := docker.RemoteDigest(fqn, c.cfg, nil); err == nil {
 		if remoteDigest == entry.Digest {
-			return needsRemoteTagging{hash: hash, tag: tag, digest: entry.Digest}
+			return needsRemoteTagging{hash: hash, tag: tag, digest: entry.Digest, platforms: platforms}
 		}
 	}
 

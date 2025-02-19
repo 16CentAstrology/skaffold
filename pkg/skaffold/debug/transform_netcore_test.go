@@ -19,8 +19,34 @@ package debug
 import (
 	"testing"
 
+	"github.com/GoogleContainerTools/skaffold/v2/pkg/skaffold/debug/types"
 	"github.com/GoogleContainerTools/skaffold/v2/testutil"
 )
+
+func TestNetcoreTransformer_MatchRuntime(t *testing.T) {
+	tests := []struct {
+		description string
+		source      ImageConfiguration
+		result      bool
+	}{
+		{description: "node non-match",
+			source: ImageConfiguration{RuntimeType: types.Runtimes.NodeJS},
+			result: false,
+		},
+		{description: "netcore match",
+			source: ImageConfiguration{RuntimeType: types.Runtimes.NetCore},
+			result: true,
+		},
+	}
+
+	for _, test := range tests {
+		testutil.Run(t, test.description, func(t *testutil.T) {
+			result := netcoreTransformer{}.MatchRuntime(test.source)
+
+			t.CheckDeepEqual(test.result, result)
+		})
+	}
+}
 
 func TestNetcoreTransformer_IsApplicable(t *testing.T) {
 	tests := []struct {

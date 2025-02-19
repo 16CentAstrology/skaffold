@@ -26,48 +26,43 @@ const DeploymentWebYAML = `apiVersion: v1
 kind: Pod
 metadata:
   name: leeroy-web
-  namespace: default
 spec:
   containers:
-  - name: leeroy-web
-    image: leeroy-web`
+    - name: leeroy-web
+      image: leeroy-web`
 
 const DeploymentWebYAMLv1 = `apiVersion: v1
 kind: Pod
 metadata:
   name: leeroy-web
-  namespace: default
 spec:
   containers:
-  - image: leeroy-web:v1
-    name: leeroy-web`
+    - image: leeroy-web:v1
+      name: leeroy-web`
 
 const DeploymentAppYAML = `apiVersion: v1
 kind: Pod
 metadata:
   name: leeroy-app
-  namespace: default
 spec:
   containers:
-  - name: leeroy-app
-    image: leeroy-app`
+    - name: leeroy-app
+      image: leeroy-app`
 
 const DeploymentAppYAMLv1 = `apiVersion: v1
 kind: Pod
 metadata:
   name: leeroy-app
-  namespace: default
 spec:
   containers:
-  - image: leeroy-app:v1
-    name: leeroy-app`
+    - image: leeroy-app:v1
+      name: leeroy-app`
 
 const DeploymentAppYAMLv2 = `apiVersion: v1
 kind: Pod
 metadata:
   name: leeroy-app
-  namespace: default
 spec:
   containers:
-  - image: leeroy-app:v2
-    name: leeroy-app`
+    - image: leeroy-app:v2
+      name: leeroy-app`

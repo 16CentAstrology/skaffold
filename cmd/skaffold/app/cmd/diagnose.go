@@ -20,22 +20,29 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"os"
 
 	"github.com/spf13/cobra"
 
+	deployutil "github.com/GoogleContainerTools/skaffold/v2/pkg/skaffold/deploy/util"
 	"github.com/GoogleContainerTools/skaffold/v2/pkg/skaffold/diagnose"
 	"github.com/GoogleContainerTools/skaffold/v2/pkg/skaffold/output"
 	"github.com/GoogleContainerTools/skaffold/v2/pkg/skaffold/parser"
 	"github.com/GoogleContainerTools/skaffold/v2/pkg/skaffold/runner/runcontext"
 	"github.com/GoogleContainerTools/skaffold/v2/pkg/skaffold/schema/latest"
 	schemaUtil "github.com/GoogleContainerTools/skaffold/v2/pkg/skaffold/schema/util"
+	"github.com/GoogleContainerTools/skaffold/v2/pkg/skaffold/tag"
+	"github.com/GoogleContainerTools/skaffold/v2/pkg/skaffold/tags"
 	"github.com/GoogleContainerTools/skaffold/v2/pkg/skaffold/util"
 	"github.com/GoogleContainerTools/skaffold/v2/pkg/skaffold/version"
 	"github.com/GoogleContainerTools/skaffold/v2/pkg/skaffold/yaml"
 )
 
 var (
-	yamlOnly bool
+	yamlOnly   bool
+	outputFile string
+
+	enableTemplating bool
 	// for testing
 	getRunContext = runcontext.GetRunContext
 	getCfgs       = parser.GetAllConfigs
@@ -49,7 +56,10 @@ func NewCmdDiagnose() *cobra.Command {
 		WithExample("Print the effective skaffold.yaml configuration for given profile", "diagnose --yaml-only --profile PROFILE").
 		WithCommonFlags().
 		WithFlags([]*Flag{
-			{Value: &yamlOnly, Name: "yaml-only", DefValue: false, Usage: "Only prints the effective skaffold.yaml configuration"}}).
+			{Value: &yamlOnly, Name: "yaml-only", DefValue: false, Usage: "Only prints the effective skaffold.yaml configuration"},
+			{Value: &enableTemplating, Name: "enable-templating", DefValue: false, Usage: "Render supported templated fields with golang template engine"},
+			{Value: &outputFile, Name: "output", Shorthand: "o", DefValue: "", Usage: "File to write diagnose result"},
+		}).
 		NoArgs(doDiagnose)
 }
 
@@ -60,6 +70,15 @@ func doDiagnose(ctx context.Context, out io.Writer) error {
 	if err != nil {
 		return err
 	}
+	if outputFile != "" {
+		f, err := os.Create(outputFile)
+		if err != nil {
+			return err
+		}
+		defer f.Close()
+		out = f
+	}
+
 	if !yamlOnly {
 		if err := printArtifactDiagnostics(ctx, out, configs); err != nil {
 			return err
@@ -69,10 +88,16 @@ func doDiagnose(ctx context.Context, out io.Writer) error {
 	for i := range configs {
 		configs[i].(*latest.SkaffoldConfig).Dependencies = nil
 	}
+	if enableTemplating {
+		if err := tags.ApplyTemplates(configs); err != nil {
+			return err
+		}
+	}
 	buf, err := yaml.MarshalWithSeparator(configs)
 	if err != nil {
 		return fmt.Errorf("marshalling configuration: %w", err)
 	}
+
 	out.Write(buf)
 
 	return nil
@@ -83,13 +108,20 @@ func printArtifactDiagnostics(ctx context.Context, out io.Writer, configs []sche
 	if err != nil {
 		return fmt.Errorf("getting run context: %w", err)
 	}
+	tagger, err := tag.NewTaggerMux(runCtx)
+	if err != nil {
+		return fmt.Errorf("getting tagger: %w", err)
+	}
+	imageTags, err := deployutil.ImageTags(ctx, runCtx, tagger, out, runCtx.Artifacts())
+	if err != nil {
+		return fmt.Errorf("getting tags: %w", err)
+	}
 	for _, c := range configs {
 		config := c.(*latest.SkaffoldConfig)
 		fmt.Fprintln(out, "Skaffold version:", version.Get().GitCommit)
 		fmt.Fprintln(out, "Configuration version:", config.APIVersion)
 		fmt.Fprintln(out, "Number of artifacts:", len(config.Build.Artifacts))
-
-		if err := diagnose.CheckArtifacts(ctx, runCtx, out); err != nil {
+		if err := diagnose.CheckArtifacts(ctx, runCtx, imageTags, out); err != nil {
 			return fmt.Errorf("running diagnostic on artifacts: %w", err)
 		}
 
