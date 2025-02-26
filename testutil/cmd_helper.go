@@ -19,6 +19,7 @@ package testutil
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"os/exec"
 	"strings"
@@ -29,6 +30,7 @@ type FakeCmd struct {
 	t           *testing.T
 	runs        []run
 	timesCalled int
+	runOnce     map[string]run
 }
 
 type run struct {
@@ -42,7 +44,9 @@ type run struct {
 }
 
 func newFakeCmd() *FakeCmd {
-	return &FakeCmd{}
+	return &FakeCmd{
+		runOnce: map[string]run{},
+	}
 }
 
 func (c *FakeCmd) addRun(r run) *FakeCmd {
@@ -80,6 +84,10 @@ func CmdRunErr(command string, err error) *FakeCmd {
 
 func CmdRunOut(command string, output string) *FakeCmd {
 	return newFakeCmd().AndRunOut(command, output)
+}
+
+func CmdRunOutOnce(command string, output string) *FakeCmd {
+	return newFakeCmd().AndRunOutOnce(command, output)
 }
 
 func CmdRunDirOut(command string, dir string, output string) *FakeCmd {
@@ -145,6 +153,15 @@ func (c *FakeCmd) AndRunOut(command string, output string) *FakeCmd {
 	})
 }
 
+func (c *FakeCmd) AndRunOutOnce(command string, output string) *FakeCmd {
+	r := run{
+		command: command,
+		output:  []byte(output),
+	}
+	c.runOnce[command] = r
+	return c
+}
+
 func (c *FakeCmd) AndRunDirOut(command string, dir string, output string) *FakeCmd {
 	return c.addRun(run{
 		command: command,
@@ -168,7 +185,7 @@ func (c *FakeCmd) AndRunEnv(command string, env []string) *FakeCmd {
 	})
 }
 
-func (c *FakeCmd) RunCmdOut(ctx context.Context, cmd *exec.Cmd) ([]byte, error) {
+func (c *FakeCmd) RunCmdOut(_ context.Context, cmd *exec.Cmd) ([]byte, error) {
 	c.timesCalled++
 	command := strings.Join(cmd.Args, " ")
 
@@ -195,7 +212,19 @@ func (c *FakeCmd) RunCmdOut(ctx context.Context, cmd *exec.Cmd) ([]byte, error) 
 	return r.output, r.err
 }
 
-func (c *FakeCmd) RunCmd(ctx context.Context, cmd *exec.Cmd) error {
+func (c *FakeCmd) RunCmdOutOnce(_ context.Context, cmd *exec.Cmd) ([]byte, error) {
+	c.timesCalled++
+	command := strings.Join(cmd.Args, " ")
+
+	r, found := c.runOnce[command]
+	if !found {
+		return nil, fmt.Errorf("expected command not found: %s", command)
+	}
+
+	return r.output, r.err
+}
+
+func (c *FakeCmd) RunCmd(_ context.Context, cmd *exec.Cmd) error {
 	c.timesCalled++
 	command := strings.Join(cmd.Args, " ")
 

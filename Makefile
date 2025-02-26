@@ -40,7 +40,7 @@ BUILD_PACKAGE = $(REPOPATH)/v2/cmd/skaffold
 SKAFFOLD_TEST_PACKAGES = ./pkg/skaffold/... ./cmd/... ./hack/... ./pkg/webhook/...
 GO_FILES = $(shell find . -type f -name '*.go' -not -path "./pkg/diag/*")
 
-VERSION_PACKAGE = $(REPOPATH)/pkg/skaffold/version
+VERSION_PACKAGE = $(REPOPATH)/v2/pkg/skaffold/version
 COMMIT = $(shell git rev-parse HEAD)
 
 ifeq "$(strip $(VERSION))" ""
@@ -59,6 +59,8 @@ GO_LDFLAGS += -X $(VERSION_PACKAGE).buildDate=$(BUILD_DATE)
 GO_LDFLAGS += -X $(VERSION_PACKAGE).gitCommit=$(COMMIT)
 GO_LDFLAGS += -s -w
 
+GO_BUILD_TAGS = timetzdata
+
 GO_BUILD_TAGS_linux = osusergo netgo static_build release
 LDFLAGS_linux = -static
 
@@ -73,9 +75,9 @@ endif
 # when build for local development (`LOCAL=true make install` can skip license check)
 $(BUILD_DIR)/$(PROJECT): $(EMBEDDED_FILES_CHECK) $(GO_FILES) $(BUILD_DIR)
 	$(eval ldflags = $(GO_LDFLAGS) $(patsubst %,-extldflags \"%\",$(LDFLAGS_$(GOOS))))
-	$(eval tags = $(GO_BUILD_TAGS_$(GOOS)) $(GO_BUILD_TAGS_$(GOOS)_$(GOARCH)))
+	$(eval tags = $(GO_BUILD_TAGS) $(GO_BUILD_TAGS_$(GOOS)) $(GO_BUILD_TAGS_$(GOOS)_$(GOARCH)))
 	GOOS=$(GOOS) GOARCH=$(GOARCH) CGO_ENABLED=1 \
-	    go build -gcflags="all=-N -l" -tags "$(tags)" -ldflags "$(ldflags)" -o $@ $(BUILD_PACKAGE)
+	    go build -mod="vendor" -gcflags="all=-N -l" -tags "$(tags)" -ldflags "$(ldflags)" -o $@ $(BUILD_PACKAGE)
 ifeq ($(GOOS),darwin)
 	codesign --force --deep --sign - $@
 endif
@@ -95,8 +97,8 @@ $(BUILD_DIR)/$(PROJECT)-%: $(EMBEDDED_FILES_CHECK) $(GO_FILES) $(BUILD_DIR)
 	$(eval os = $(firstword $(subst -, ,$*)))
 	$(eval arch = $(lastword $(subst -, ,$(subst .exe,,$*))))
 	$(eval ldflags = $(GO_LDFLAGS) $(patsubst %,-extldflags \"%\",$(LDFLAGS_$(os))))
-	$(eval tags = $(GO_BUILD_TAGS_$(os)) $(GO_BUILD_TAGS_$(os)_$(arch)))
-	GOOS=$(os) GOARCH=$(arch) CGO_ENABLED=1 go build -tags "$(tags)" -ldflags "$(ldflags)" -o $@ ./cmd/skaffold
+	$(eval tags = $(GO_BUILD_TAGS) $(GO_BUILD_TAGS_$(os)) $(GO_BUILD_TAGS_$(os)_$(arch)))
+	GOOS=$(os) GOARCH=$(arch) CGO_ENABLED=1 go build -mod="vendor" -tags "$(tags)" -ldflags "$(ldflags)" -o $@ ./cmd/skaffold
 	(cd `dirname $@`; shasum -a 256 `basename $@`) | tee $@.sha256
 	file $@ || true
 
@@ -119,7 +121,8 @@ unit-tests: $(BUILD_DIR)
 
 .PHONY: coverage
 coverage: $(BUILD_DIR)
-	@ ./hack/gotest.sh -count=1 -race -cover -short -timeout=90s -coverprofile=out/coverage.txt -coverpkg="./pkg/...,./cmd/..." $(SKAFFOLD_TEST_PACKAGES)
+    # https://go-review.git.corp.google.com/c/go/+/569575
+	@ GOEXPERIMENT=nocoverageredesign ./hack/gotest.sh -count=1 -race -cover -short -timeout=90s -coverprofile=out/coverage.txt -coverpkg="./pkg/...,./cmd/..." $(SKAFFOLD_TEST_PACKAGES)
 	@- curl -s https://codecov.io/bash > $(BUILD_DIR)/upload_coverage && bash $(BUILD_DIR)/upload_coverage
 
 .PHONY: checks
@@ -154,8 +157,8 @@ release: $(BUILD_DIR)/VERSION
 		--build-arg VERSION=$(VERSION) \
 		-f deploy/skaffold/Dockerfile \
 		--target release \
-		-t gcr.io/$(GCP_PROJECT)/skaffold:latest \
 		-t gcr.io/$(GCP_PROJECT)/skaffold:$(VERSION) \
+                -t gcr.io/$(GCP_PROJECT)/skaffold:latest \
 		.
 
 .PHONY: release-build
@@ -175,15 +178,7 @@ release-lts: $(BUILD_DIR)/VERSION
 		--target release \
 		-t gcr.io/$(GCP_PROJECT)/skaffold:lts \
 		-t gcr.io/$(GCP_PROJECT)/skaffold:$(VERSION)-lts \
-		.
-
-.PHONY: release-slim
-release-slim: $(BUILD_DIR)/VERSION
-	docker build \
-		-f deploy/skaffold/Dockerfile.slim \
-		--target release \
-		-t gcr.io/$(GCP_PROJECT)/skaffold:slim \
-		-t gcr.io/$(GCP_PROJECT)/skaffold:$(COMMIT)-slim \
+		-t gcr.io/$(GCP_PROJECT)/skaffold:$(SCANNING_MARKER)-lts \
 		.
 
 .PHONY: release-lts-build
@@ -197,7 +192,7 @@ release-lts-build:
 
 .PHONY: clean
 clean:
-	rm -rf $(BUILD_DIR) hack/bin $(EMBEDDED_FILES_CHECK) fs/assets/*_generated/
+	rm -rf $(BUILD_DIR) hack/bin $(EMBEDDED_FILES_CHECK) fs/assets/schemas_generated/
 
 .PHONY: build_deps
 build_deps:
@@ -207,6 +202,18 @@ build_deps:
 		-t gcr.io/$(GCP_PROJECT)/build_deps:$(DEPS_DIGEST) \
 		deploy/skaffold
 	docker push gcr.io/$(GCP_PROJECT)/build_deps:$(DEPS_DIGEST)
+
+skaffold-builder-ci:
+	docker build \
+		--cache-from gcr.io/$(GCP_PROJECT)/build_deps \
+		-f deploy/skaffold/Dockerfile.deps \
+		-t gcr.io/$(GCP_PROJECT)/build_deps \
+		.
+	time docker build \
+		-f deploy/skaffold/Dockerfile \
+		--target builder \
+		-t gcr.io/$(GCP_PROJECT)/skaffold-builder \
+		.
 
 .PHONY: skaffold-builder
 skaffold-builder:
@@ -270,7 +277,7 @@ integration-in-k3d: skaffold-builder
 		'
 
 .PHONY: integration-in-docker
-integration-in-docker: skaffold-builder
+integration-in-docker: skaffold-builder-ci
 	docker run --rm \
 		-v /var/run/docker.sock:/var/run/docker.sock \
 		-v $(HOME)/.config/gcloud:/root/.config/gcloud \
@@ -285,7 +292,7 @@ integration-in-docker: skaffold-builder
 		-e INTEGRATION_TEST_ARGS=$(INTEGRATION_TEST_ARGS) \
 		-e IT_PARTITION=$(IT_PARTITION) \
 		gcr.io/$(GCP_PROJECT)/skaffold-builder \
-		make integration
+		make integration-tests
 
 .PHONY: submit-build-trigger
 submit-build-trigger:

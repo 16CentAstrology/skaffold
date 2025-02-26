@@ -348,6 +348,42 @@ It is one of MetaEvent, BuildEvent, TestEvent, DeployEvent, PortEvent, StatusChe
 | renderEvent | [RenderSubtaskEvent](#proto.v2.RenderSubtaskEvent) |  | describes if the render has started, is in progress or is complete. |
 | verifyEvent | [VerifySubtaskEvent](#proto.v2.VerifySubtaskEvent) |  | describes if the render has started, is in progress or is complete. |
 | cloudRunReadyEvent | [CloudRunReadyEvent](#proto.v2.CloudRunReadyEvent) |  | describes a deployed Cloud Run service. |
+| execEvent | [ExecSubtaskEvent](#proto.v2.ExecSubtaskEvent) |  | describes if the exec has started, is in progress or is complete. |
+
+
+
+
+
+
+
+<a name="proto.v2.ExecState"></a>
+#### ExecState
+`ExecState` describes the state of the current exec
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| status | [string](#string) |  | Status of the current exec |
+| statusCode | [proto.enums.StatusCode](#proto.enums.StatusCode) |  | ExecState status code |
+
+
+
+
+
+
+
+<a name="proto.v2.ExecSubtaskEvent"></a>
+#### ExecSubtaskEvent
+`ExecSubtaskEvent` represents the status of an exec, and is emitted by Skaffold
+anytime an exec starts or completes, successfully or not.
+
+
+| Field | Type | Label | Description |
+| ----- | ---- | ----- | ----------- |
+| id | [string](#string) |  | id of the subtask which will be used in SkaffoldLog |
+| task_id | [string](#string) |  | id of the task of skaffold that this event came from |
+| status | [string](#string) |  | exec status oneof: InProgress, Completed, Failed |
+| actionableErr | [ActionableErr](#proto.v2.ActionableErr) |  | actionable error message |
 
 
 
@@ -636,6 +672,7 @@ log level |
 | testState | [TestState](#proto.v2.TestState) |  |  |
 | renderState | [RenderState](#proto.v2.RenderState) |  |  |
 | verifyState | [VerifyState](#proto.v2.VerifyState) |  |  |
+| execState | [ExecState](#proto.v2.ExecState) |  |  |
 
 
 
@@ -1120,11 +1157,16 @@ For Cancelled Error code, use range 800 to 850.<br>
 | STATUSCHECK_STANDALONE_PODS_FETCH_ERR | 413 |  |
 | STATUSCHECK_CONFIG_CONNECTOR_RESOURCES_FETCH_ERR | 414 |  |
 | STATUSCHECK_STATEFULSET_FETCH_ERR | 415 |  |
+| STATUSCHECK_CUSTOM_RESOURCE_FETCH_ERR | 416 |  |
 | STATUSCHECK_POD_INITIALIZING | 451 | Pod Initializing |
 | STATUSCHECK_CONFIG_CONNECTOR_IN_PROGRESS | 452 | The actual state of the resource has not yet reached the desired state |
 | STATUSCHECK_CONFIG_CONNECTOR_FAILED | 453 | The process of reconciling the actual state with the desired state has encountered an error |
 | STATUSCHECK_CONFIG_CONNECTOR_TERMINATING | 454 | The resource is in the process of being deleted |
 | STATUSCHECK_CONFIG_CONNECTOR_NOT_FOUND | 455 | The resource does not exist |
+| STATUSCHECK_CUSTOM_RESOURCE_IN_PROGRESS | 456 | The actual state of the resource has not yet reached the desired state |
+| STATUSCHECK_CUSTOM_RESOURCE_FAILED | 457 | The process of reconciling the actual state with the desired state has encountered an error |
+| STATUSCHECK_CUSTOM_RESOURCE_TERMINATING | 458 | The resource is in the process of being deleted |
+| STATUSCHECK_CUSTOM_RESOURCE_NOT_FOUND | 459 | The resource does not exist |
 | UNKNOWN_ERROR | 500 | Could not determine error and phase |
 | STATUSCHECK_UNKNOWN | 501 | Status Check error unknown |
 | STATUSCHECK_UNKNOWN_UNSCHEDULABLE | 502 | Container is unschedulable due to unknown reasons |
@@ -1242,6 +1284,7 @@ For Cancelled Error code, use range 800 to 850.<br>
 | INSPECT_PROFILE_NOT_FOUND_ERR | 1304 | Trying to modify a profile that doesn't exist |
 | PORT_FORWARD_RUN_GCLOUD_NOT_FOUND | 1601 |  |
 | PORT_FORWARD_RUN_PROXY_START_ERROR | 1602 |  |
+| LOG_STREAM_RUN_GCLOUD_NOT_FOUND | 1603 | GCloud not found error |
 
 
 

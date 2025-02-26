@@ -24,6 +24,7 @@ import (
 	"time"
 
 	dockertypes "github.com/docker/docker/api/types"
+	"github.com/docker/docker/api/types/container"
 
 	"github.com/GoogleContainerTools/skaffold/v2/integration/skaffold"
 	"github.com/GoogleContainerTools/skaffold/v2/pkg/skaffold/debug/types"
@@ -55,12 +56,19 @@ func TestDebug(t *testing.T) {
 			pods:        []string{"nodejs", "npm" /*, "python3"*/, "go" /*, "netcore"*/},
 		},
 		{
-			description: "buildpacks",
+			description: "specified-runtime-nodejs",
 			dir:         "testdata/debug",
-			args:        []string{"--profile", "buildpacks"},
-			deployments: []string{"java"},
-			pods:        []string{"nodejs", "npm" /*, "python3"*/, "go" /*, "netcore"*/},
+			args:        []string{"--profile", "specified-runtime", "--check-cluster-node-platforms=false"},
+			pods:        []string{"nodejs"},
 		},
+		// TODO(#8811): Enable this test when issue is solve.
+		// {
+		// 	description: "buildpacks",
+		// 	dir:         "testdata/debug",
+		// 	args:        []string{"--profile", "buildpacks"},
+		// 	deployments: []string{"java"},
+		// 	pods:        []string{"nodejs", "npm" /*, "python3"*/, "go" /*, "netcore"*/},
+		// },
 		{
 			description:   "helm",
 			dir:           "examples/helm-deployment",
@@ -138,7 +146,7 @@ func TestDockerDebug(t *testing.T) {
 			maxTries                = 15              // try for 30 seconds max
 		)
 		for {
-			containers, err := client.ContainerList(context.Background(), dockertypes.ContainerListOptions{All: true})
+			containers, err := client.ContainerList(context.Background(), container.ListOptions{All: true})
 			if err != nil {
 				t.Fail()
 			}

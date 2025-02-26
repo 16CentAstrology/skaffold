@@ -24,7 +24,7 @@ import (
 	"runtime"
 	"sort"
 
-	"github.com/docker/docker/builder/dockerignore"
+	"github.com/moby/buildkit/frontend/dockerfile/dockerignore"
 
 	"github.com/GoogleContainerTools/skaffold/v2/pkg/skaffold/constants"
 	"github.com/GoogleContainerTools/skaffold/v2/pkg/skaffold/util"
@@ -268,7 +268,8 @@ func WalkWorkspace(workspace string, excludes, deps []string) (map[string]bool, 
 			if err != nil {
 				return err
 			}
-			if util.IsEmptyDir(path) || !info.IsDir() {
+
+			if !info.IsDir() || util.IsEmptyDir(path) {
 				files[relPath] = true
 			}
 
@@ -277,5 +278,6 @@ func WalkWorkspace(workspace string, excludes, deps []string) (map[string]bool, 
 			return nil, fmt.Errorf("walking %q: %w", absFrom, err)
 		}
 	}
+
 	return files, nil
 }

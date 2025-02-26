@@ -36,13 +36,15 @@ import (
 )
 
 const (
-	deploymentRolloutSuccess = "successfully rolled out"
-	connectionErrMsg         = "Unable to connect to the server"
-	killedErrMsg             = "signal: killed"
-	defaultPodCheckDeadline  = 30 * time.Second
-	tabHeader                = " -"
-	tab                      = "  "
-	maxLogLines              = 3
+	deploymentRolloutSuccess   = "successfully rolled out"
+	connectionErrMsg           = "Unable to connect to the server"
+	killedErrMsg               = "signal: killed"
+	clientSideThrottleErrMsg   = "due to client-side throttling"
+	couldNotFindResourceErrMsg = "the server could not find the requested resource"
+	defaultPodCheckDeadline    = 30 * time.Second
+	tabHeader                  = " -"
+	tab                        = "  "
+	maxLogLines                = 3
 )
 
 // Type represents a kubernetes resource type to health check.
@@ -51,8 +53,9 @@ type Type string
 var (
 	statefulsetRolloutSuccess = regexp.MustCompile("(roll out|rolling update) complete")
 
-	msgKubectlKilled     = "kubectl rollout status command interrupted\n"
-	MsgKubectlConnection = "kubectl connection error\n"
+	msgKubectlKilled            = "kubectl rollout status command interrupted\n"
+	MsgKubectlConnection        = "kubectl connection error\n"
+	msgStrategyTypeNotSupported = "rollout status is only available for RollingUpdate strategy type"
 
 	nonRetryContainerErrors = map[proto.StatusCode]struct{}{
 		proto.StatusCode_STATUSCHECK_IMAGE_PULL_ERR:       {},
@@ -66,11 +69,13 @@ var (
 		Deployment      Type
 		StatefulSet     Type
 		ConfigConnector Type
+		CustomResource  Type
 	}{
 		StandalonePods:  "standalone-pods",
 		Deployment:      "deployment",
 		StatefulSet:     "statefulset",
 		ConfigConnector: "config-connector-resource",
+		CustomResource:  "custom-resource",
 	}
 )
 
@@ -98,6 +103,7 @@ type Resource struct {
 	status           Status
 	statusCode       proto.StatusCode
 	done             bool
+	tolerateFailures bool
 	deadline         time.Duration
 	resources        map[string]validator.Resource
 	resoureValidator diag.Diagnose
@@ -125,7 +131,7 @@ func (r *Resource) UpdateStatus(ae *proto.ActionableErr) {
 	}
 }
 
-func NewResource(name string, rType Type, ns string, deadline time.Duration) *Resource {
+func NewResource(name string, rType Type, ns string, deadline time.Duration, tolerateFailures bool) *Resource {
 	return &Resource{
 		name:             name,
 		namespace:        ns,
@@ -133,6 +139,7 @@ func NewResource(name string, rType Type, ns string, deadline time.Duration) *Re
 		status:           newStatus(&proto.ActionableErr{}),
 		deadline:         deadline,
 		resoureValidator: diag.New(nil),
+		tolerateFailures: tolerateFailures,
 	}
 }
 
@@ -159,6 +166,8 @@ func (r *Resource) checkStandalonePodsStatus(ctx context.Context, cfg kubectl.Co
 			if podReady, _ := strconv.ParseBool(string(b)); !podReady {
 				pendingPods = append(pendingPods, pod.Name())
 			}
+		case "Succeeded":
+			log.Entry(ctx).Debugf("pod '%s' succeeded - ignoring", pod.Name())
 		default:
 			pendingPods = append(pendingPods, pod.Name())
 		}
@@ -201,15 +210,13 @@ func (r *Resource) checkConfigConnectorStatus() *proto.ActionableErr {
 }
 
 func (r *Resource) checkRolloutStatus(ctx context.Context, cfg kubectl.Config) *proto.ActionableErr {
-	kubeCtl := kubectl.NewCLI(cfg, "")
-
-	b, err := kubeCtl.RunOut(ctx, "rollout", "status", string(r.rType), r.name, "--namespace", r.namespace, "--watch=false")
+	b, err := kubectl.NewCLI(cfg, "").RunOut(ctx, "rollout", "status", string(r.rType), r.name, "--namespace", r.namespace, "--watch=false")
 	if ctx.Err() != nil {
 		return &proto.ActionableErr{ErrCode: proto.StatusCode_STATUSCHECK_USER_CANCELLED}
 	}
-
 	details := r.cleanupStatus(string(b))
-	return parseKubectlRolloutError(details, r.deadline, err)
+
+	return parseKubectlRolloutError(details, r.deadline, r.tolerateFailures, err)
 }
 
 func (r *Resource) CheckStatus(ctx context.Context, cfg kubectl.Config) {
@@ -219,6 +226,8 @@ func (r *Resource) CheckStatus(ctx context.Context, cfg kubectl.Config) {
 		ae = r.checkStandalonePodsStatus(ctx, cfg)
 	case ResourceTypes.ConfigConnector:
 		ae = r.checkConfigConnectorStatus()
+	case ResourceTypes.CustomResource:
+		ae = r.checkCustomResourceStatus()
 	default:
 		ae = r.checkRolloutStatus(ctx, cfg)
 	}
@@ -230,6 +239,10 @@ func (r *Resource) CheckStatus(ctx context.Context, cfg kubectl.Config) {
 	// See https://github.com/GoogleCloudPlatform/cloud-code-vscode-internal/issues/5277
 	if ae.ErrCode == proto.StatusCode_STATUSCHECK_SUCCESS {
 		for _, pod := range r.resources {
+			if pod.Status() == "Succeeded" {
+				continue // Skip terminated pods
+			}
+
 			eventV2.ResourceStatusCheckEventCompletedMessage(
 				pod.String(),
 				fmt.Sprintf("%s %s: running.\n", tabHeader, pod.String()),
@@ -239,6 +252,13 @@ func (r *Resource) CheckStatus(ctx context.Context, cfg kubectl.Config) {
 		return
 	}
 	if err := r.fetchPods(ctx); err != nil {
+		// This hack is used to fail status check if deployment request is denied by admission webhook, without this status check
+		// will hang. This hack doesn't honor tolerate-failure-until-deadline flag, as when running kubectl apply with a standalone pod resource
+		// the command will fail directly, we won't even be here. So it probably makes more sense that we just stop here instead of repeating status checks.
+		if strings.Contains(err.Error(), validator.ReplicaFailureAdmissionErr) {
+			r.UpdateStatus(&proto.ActionableErr{ErrCode: proto.StatusCode_STATUSCHECK_UNKNOWN, Message: fmt.Sprintf("replica set creation failed: %s", err.Error())})
+			return
+		}
 		log.Entry(ctx).Debugf("pod statuses could not be fetched this time due to %s", err)
 	}
 }
@@ -344,7 +364,7 @@ func (r *Resource) cleanupStatus(msg string) string {
 // $kubectl logs testPod  -f
 // 2020/06/18 17:28:31 service is running
 // Killed: 9
-func parseKubectlRolloutError(details string, deadline time.Duration, err error) *proto.ActionableErr {
+func parseKubectlRolloutError(details string, deadline time.Duration, tolerateFailures bool, err error) *proto.ActionableErr {
 	switch {
 	// deployment rollouts have success messages like `deployment "skaffold-foo" successfully rolled out`
 	case err == nil && strings.Contains(details, deploymentRolloutSuccess):
@@ -363,15 +383,37 @@ func parseKubectlRolloutError(details string, deadline time.Duration, err error)
 			ErrCode: proto.StatusCode_STATUSCHECK_DEPLOYMENT_ROLLOUT_PENDING,
 			Message: details,
 		}
+	case strings.Contains(err.Error(), killedErrMsg):
+		return &proto.ActionableErr{
+			ErrCode: proto.StatusCode_STATUSCHECK_KUBECTL_PID_KILLED,
+			Message: fmt.Sprintf("received Ctrl-C or deployments could not stabilize within %v: %s", deadline, msgKubectlKilled),
+		}
+	case tolerateFailures:
+		log.Entry(context.TODO()).Debugf("kubectl rollout encountered error but deployment continuing "+
+			"as skaffold is currently configured to tolerate failures, err: %s", err)
+		return &proto.ActionableErr{
+			ErrCode: proto.StatusCode_STATUSCHECK_DEPLOYMENT_ROLLOUT_PENDING,
+			Message: details,
+		}
+	case strings.Contains(err.Error(), clientSideThrottleErrMsg) ||
+		strings.Contains(err.Error(), couldNotFindResourceErrMsg):
+		log.Entry(context.TODO()).Debugf("kubectl rollout encountered error but deployment continuing "+
+			"as it is likely a transient error, err: %s", err)
+		return &proto.ActionableErr{
+			ErrCode: proto.StatusCode_STATUSCHECK_DEPLOYMENT_ROLLOUT_PENDING,
+			Message: details,
+		}
 	case strings.Contains(err.Error(), connectionErrMsg):
 		return &proto.ActionableErr{
 			ErrCode: proto.StatusCode_STATUSCHECK_KUBECTL_CONNECTION_ERR,
 			Message: MsgKubectlConnection,
 		}
-	case strings.Contains(err.Error(), killedErrMsg):
+	// statefulset rollouts that use OnDelete strategy type don't support monitoring rollout, treat it as
+	// if the deployment just completed successfully
+	case strings.Contains(err.Error(), msgStrategyTypeNotSupported):
 		return &proto.ActionableErr{
-			ErrCode: proto.StatusCode_STATUSCHECK_KUBECTL_PID_KILLED,
-			Message: fmt.Sprintf("received Ctrl-C or deployments could not stabilize within %v: %s", deadline, msgKubectlKilled),
+			ErrCode: proto.StatusCode_STATUSCHECK_SUCCESS,
+			Message: details,
 		}
 	default:
 		return &proto.ActionableErr{
@@ -386,6 +428,7 @@ func isErrAndNotRetryAble(statusCode proto.StatusCode) bool {
 		statusCode != proto.StatusCode_STATUSCHECK_DEPLOYMENT_ROLLOUT_PENDING &&
 		statusCode != proto.StatusCode_STATUSCHECK_STANDALONE_PODS_PENDING &&
 		statusCode != proto.StatusCode_STATUSCHECK_CONFIG_CONNECTOR_IN_PROGRESS &&
+		statusCode != proto.StatusCode_STATUSCHECK_CUSTOM_RESOURCE_IN_PROGRESS &&
 		statusCode != proto.StatusCode_STATUSCHECK_NODE_UNSCHEDULABLE &&
 		statusCode != proto.StatusCode_STATUSCHECK_UNKNOWN_UNSCHEDULABLE
 }
@@ -458,4 +501,32 @@ func (r *Resource) WithPodStatuses(scs []proto.StatusCode) *Resource {
 			&proto.ActionableErr{Message: "pod failed", ErrCode: s}, nil)
 	}
 	return r
+}
+
+func (r *Resource) checkCustomResourceStatus() *proto.ActionableErr {
+	if len(r.resources) == 0 {
+		return &proto.ActionableErr{ErrCode: proto.StatusCode_STATUSCHECK_CUSTOM_RESOURCE_IN_PROGRESS}
+	}
+	var pendingResources []string
+	for _, resource := range r.resources {
+		ae := resource.ActionableError()
+		if ae == nil {
+			continue
+		}
+		switch ae.ErrCode {
+		case proto.StatusCode_STATUSCHECK_CUSTOM_RESOURCE_FAILED, proto.StatusCode_STATUSCHECK_CUSTOM_RESOURCE_TERMINATING:
+			return ae
+		case proto.StatusCode_STATUSCHECK_SUCCESS:
+			continue
+		default:
+			pendingResources = append(pendingResources, resource.Name())
+		}
+	}
+	if len(pendingResources) > 0 {
+		return &proto.ActionableErr{
+			ErrCode: proto.StatusCode_STATUSCHECK_CUSTOM_RESOURCE_IN_PROGRESS,
+			Message: fmt.Sprintf("custom resources not ready: %v", pendingResources),
+		}
+	}
+	return &proto.ActionableErr{ErrCode: proto.StatusCode_STATUSCHECK_SUCCESS}
 }

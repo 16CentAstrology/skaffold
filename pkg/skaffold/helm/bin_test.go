@@ -35,13 +35,18 @@ var (
 )
 
 type mockClient struct {
-	enableDebug       bool
-	overrideProtocols []string
-	configFile        string
-	kubeContext       string
-	kubeConfig        string
-	labels            map[string]string
-	globalFlags       []string
+	enableDebug        bool
+	overrideProtocols  []string
+	configFile         string
+	kubeContext        string
+	kubeConfig         string
+	labels             map[string]string
+	manifestsOverrides map[string]string
+	globalFlags        []string
+}
+
+func (h mockClient) ManifestOverrides() map[string]string {
+	return h.manifestsOverrides
 }
 
 func (h mockClient) EnableDebug() bool           { return h.enableDebug }
@@ -84,6 +89,7 @@ func TestGenerateSkaffoldFilter(t *testing.T) {
 		enableDebug bool
 		buildFile   string
 		result      []string
+		globalFlags []string
 	}{
 		{
 			description: "empty buildfile is skipped",
@@ -100,18 +106,25 @@ func TestGenerateSkaffoldFilter(t *testing.T) {
 			enableDebug: true,
 			result:      []string{"filter", "--kube-context", "kubecontext", "--debugging", "--kubeconfig", "kubeconfig"},
 		},
+		{
+			description: "helm global flags are not included in filter flags",
+			result:      []string{"filter", "--kube-context", "kubecontext", "--kubeconfig", "kubeconfig"},
+			globalFlags: []string{"--debug"},
+		},
 	}
 	for _, test := range tests {
 		testutil.Run(t, test.description, func(t *testutil.T) {
 			t.Override(&util.DefaultExecCommand, testutil.CmdRunWithOutput("helm version --client", version31))
 
 			h := mockClient{
-				enableDebug: test.enableDebug,
-				kubeContext: "kubecontext",
-				kubeConfig:  "kubeconfig",
+				enableDebug:        test.enableDebug,
+				kubeContext:        "kubecontext",
+				kubeConfig:         "kubeconfig",
+				manifestsOverrides: map[string]string{},
+				globalFlags:        test.globalFlags,
 			}
 
-			result := generateSkaffoldFilter(h, test.buildFile)
+			result := generateSkaffoldFilter(h, test.buildFile, []string{})
 			t.CheckDeepEqual(test.result, result)
 		})
 	}

@@ -26,6 +26,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/google/uuid"
+
 	"github.com/GoogleContainerTools/skaffold/v2/cmd/skaffold/app/flags"
 	"github.com/GoogleContainerTools/skaffold/v2/integration/skaffold"
 	"github.com/GoogleContainerTools/skaffold/v2/pkg/skaffold/util"
@@ -38,7 +40,7 @@ func TestBuildDeploy(t *testing.T) {
 
 	ns, client := SetupNamespace(t)
 
-	outputBytes := skaffold.Build("--quiet", "--platform=linux/arm64,linux/amd64").InDir("examples/nodejs").InNs(ns.Name).RunOrFailOutput(t)
+	outputBytes := skaffold.Build("--quiet", "--platform=linux/arm64,linux/amd64", "--cache-artifacts=false", "--tag", uuid.New().String()).InDir("examples/nodejs").InNs(ns.Name).RunOrFailOutput(t)
 	// Parse the Build Output
 	buildArtifacts, err := flags.ParseBuildOutput(outputBytes)
 	failNowIfError(t, err)
@@ -209,9 +211,10 @@ func TestDeployDependenciesOrder(t *testing.T) {
 			expectedFormatedDeployOrder := []string{}
 			for _, module := range test.expectedDeployOrder {
 				expectedFormatedDeployOrder = append(expectedFormatedDeployOrder, fmt.Sprintf(" - pod/%v created", module))
+				expectedFormatedDeployOrder = append(expectedFormatedDeployOrder, "Waiting for deployments to stabilize...")
+				expectedFormatedDeployOrder = append(expectedFormatedDeployOrder, "Deployments stabilized in \\d*\\.?\\d+ms")
 			}
 			expectedFormatedDeployOrder = append([]string{"Starting deploy..."}, expectedFormatedDeployOrder...)
-			expectedFormatedDeployOrder = append(expectedFormatedDeployOrder, "Waiting for deployments to stabilize...")
 			expectedOutput := strings.Join(expectedFormatedDeployOrder, "\n")
 
 			ns, _ := SetupNamespace(t)
@@ -219,7 +222,7 @@ func TestDeployDependenciesOrder(t *testing.T) {
 			defer skaffold.Delete().InDir(test.dir).InNs(ns.Name).RunOrFail(t)
 
 			output := string(outputBytes)
-			testutil.CheckContains(t, expectedOutput, output)
+			testutil.CheckRegex(t, expectedOutput, output)
 		})
 	}
 }

@@ -107,7 +107,7 @@ func TestDeploymentCheckStatus(t *testing.T) {
 			t.Override(&util.DefaultExecCommand, test.commands)
 			testEvent.InitializeState([]latest.Pipeline{{}})
 
-			r := NewResource("graph", ResourceTypes.Deployment, "test", 0)
+			r := NewResource("graph", ResourceTypes.Deployment, "test", 0, false)
 			r.CheckStatus(context.Background(), &statusConfig{})
 
 			if test.cancelled {
@@ -122,6 +122,58 @@ func TestDeploymentCheckStatus(t *testing.T) {
 			} else {
 				t.CheckDeepEqual(r.status.ae.Message, test.expectedDetails)
 			}
+		})
+	}
+}
+
+func TestStandalonePodsCheckStatus(t *testing.T) {
+	ns := "test-ns"
+	tests := []struct {
+		description     string
+		podStatus       string
+		expectedMessage string
+		expectedErrCode proto.StatusCode
+	}{
+		{
+			description:     "running pod not ready",
+			podStatus:       "Running",
+			expectedErrCode: proto.StatusCode_STATUSCHECK_STANDALONE_PODS_PENDING,
+			expectedMessage: "pods not ready: [test-pod]",
+		},
+		{
+			description:     "failed pod",
+			podStatus:       "Failed",
+			expectedErrCode: proto.StatusCode_STATUSCHECK_UNKNOWN,
+			expectedMessage: "pod test-pod failed",
+		},
+		{
+			description:     "pending pod",
+			podStatus:       "Pending",
+			expectedErrCode: proto.StatusCode_STATUSCHECK_STANDALONE_PODS_PENDING,
+			expectedMessage: "pods not ready: [test-pod]",
+		},
+		{
+			description:     "succeeded pod",
+			podStatus:       "Succeeded",
+			expectedErrCode: proto.StatusCode_STATUSCHECK_SUCCESS,
+			expectedMessage: "",
+		},
+		{
+			description:     "unknown status pod",
+			podStatus:       "Unknown",
+			expectedErrCode: proto.StatusCode_STATUSCHECK_STANDALONE_PODS_PENDING,
+			expectedMessage: "pods not ready: [test-pod]",
+		},
+	}
+
+	for _, test := range tests {
+		testutil.Run(t, test.description, func(t *testutil.T) {
+			r := NewResource("test-standalone-pods", ResourceTypes.StandalonePods, ns, 42, false)
+			r.resources = map[string]validator.Resource{}
+			r.resources["test-pod"] = validator.NewResource(ns, "pod", "test-pod", validator.Status(test.podStatus), nil, nil)
+			r.CheckStatus(context.Background(), &statusConfig{})
+			t.CheckDeepEqual(r.status.ae.GetMessage(), test.expectedMessage)
+			t.CheckDeepEqual(r.status.ae.GetErrCode(), test.expectedErrCode)
 		})
 	}
 }
@@ -168,7 +220,7 @@ func TestParseKubectlError(t *testing.T) {
 	}
 	for _, test := range tests {
 		testutil.Run(t, test.description, func(t *testutil.T) {
-			ae := parseKubectlRolloutError(test.details, 10*time.Second, test.err)
+			ae := parseKubectlRolloutError(test.details, 10*time.Second, false, test.err)
 			t.CheckDeepEqual(test.expectedAe, ae, protocmp.Transform())
 		})
 	}
@@ -295,7 +347,7 @@ func TestReportSinceLastUpdated(t *testing.T) {
 	}
 	for _, test := range tests {
 		testutil.Run(t, test.description, func(t *testutil.T) {
-			dep := NewResource("test", ResourceTypes.Deployment, "test-ns", 1)
+			dep := NewResource("test", ResourceTypes.Deployment, "test-ns", 1, false)
 			dep.resources = map[string]validator.Resource{
 				"foo": validator.NewResource(
 					"test",
@@ -350,7 +402,7 @@ func TestReportSinceLastUpdatedMultipleTimes(t *testing.T) {
 	}
 	for _, test := range tests {
 		testutil.Run(t, test.description, func(t *testutil.T) {
-			dep := NewResource("test", ResourceTypes.Deployment, "test-ns", 1)
+			dep := NewResource("test", ResourceTypes.Deployment, "test-ns", 1, false)
 			var actual string
 			for i, status := range test.podStatuses {
 				dep.UpdateStatus(&proto.ActionableErr{
@@ -416,7 +468,7 @@ func TestStatusCode(t *testing.T) {
 	}
 	for _, test := range tests {
 		testutil.Run(t, test.description, func(t *testutil.T) {
-			dep := NewResource("test", ResourceTypes.Deployment, "test-ns", 1)
+			dep := NewResource("test", ResourceTypes.Deployment, "test-ns", 1, false)
 			dep.UpdateStatus(&proto.ActionableErr{
 				ErrCode: test.status,
 				Message: "test status code",

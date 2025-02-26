@@ -41,6 +41,21 @@ func TestArgs(t *testing.T) {
 			wantErr:      false,
 		},
 		{
+			description: "with Destination",
+			artifact: &latest.KanikoArtifact{
+				DockerfilePath: "dir/Dockerfile",
+				Destination: []string{
+					"gcr.io/foo/bar:test-1",
+					"gcr.io/foo/bar:test-2",
+				},
+			},
+			expectedArgs: []string{
+				DestinationFlag, "gcr.io/foo/bar:test-1",
+				DestinationFlag, "gcr.io/foo/bar:test-2",
+			},
+			wantErr: false,
+		},
+		{
 			description: "with BuildArgs",
 			artifact: &latest.KanikoArtifact{
 				DockerfilePath: "dir/Dockerfile",
@@ -188,17 +203,6 @@ func TestArgs(t *testing.T) {
 			wantErr: false,
 		},
 		{
-			description: "with NoPush",
-			artifact: &latest.KanikoArtifact{
-				DockerfilePath: "dir/Dockerfile",
-				NoPush:         true,
-			},
-			expectedArgs: []string{
-				NoPushFlag,
-			},
-			wantErr: false,
-		},
-		{
 			description: "with OCILayoutPath",
 			artifact: &latest.KanikoArtifact{
 				DockerfilePath: "dir/Dockerfile",
@@ -324,7 +328,7 @@ func TestArgs(t *testing.T) {
 				SnapshotMode:   "redo",
 			},
 			expectedArgs: []string{
-				"--snapshotMode", "redo",
+				"--snapshot-mode", "redo",
 			},
 			wantErr: false,
 		},
@@ -404,6 +408,18 @@ func TestArgs(t *testing.T) {
 			expectedArgs: []string{
 				LabelFlag, "label1=value1",
 				LabelFlag, "label2",
+			},
+			wantErr: false,
+		},
+		{
+			description: "with IgnorePaths",
+			artifact: &latest.KanikoArtifact{
+				DockerfilePath: "dir/Dockerfile",
+				IgnorePaths:    []string{"/tmp", "/proc"},
+			},
+			expectedArgs: []string{
+				IgnorePathFlag, "/tmp",
+				IgnorePathFlag, "/proc",
 			},
 			wantErr: false,
 		},
