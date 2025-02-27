@@ -1,9 +1,8 @@
-module github.com/GoogleContainerTools/skaffold/v2/integration/v2/examples/grpc-e2e-tests/tests
+module github.com/GoogleContainerTools/skaffold/v2/integration/examples/grpc-e2e-tests/tests
 
 go 1.19
 
 require (
-	github.com/GoogleContainerTools/skaffold/examples/grpc-e2e-tests/service v0.0.0-00010101000000-000000000000
 	github.com/google/uuid v1.3.0
 	github.com/onsi/ginkgo/v2 v2.2.0
 	github.com/onsi/gomega v1.21.1

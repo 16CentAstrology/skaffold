@@ -53,7 +53,7 @@ func (b *Builder) build(ctx context.Context, out io.Writer, a *latest.Artifact, 
 
 	// Read `project.toml` if it exists.
 	path := filepath.Join(workspace, artifact.ProjectDescriptor)
-	projectDescriptor, err := project.ReadProjectDescriptor(path)
+	projectDescriptor, err := project.ReadProjectDescriptor(path, NewLogger(out))
 	if err != nil && !os.IsNotExist(err) {
 		return "", fmt.Errorf("failed to read project descriptor %q: %w", path, err)
 	}
@@ -152,13 +152,13 @@ func rewriteLifecycleStatusCode(lce error) error {
 
 func mapLifecycleStatusCode(code int) string {
 	switch code {
-	case lifecycle.CodeFailed:
+	case lifecycle.CodeForFailed:
 		return "buildpacks lifecycle failed"
-	case lifecycle.CodeInvalidArgs:
+	case lifecycle.CodeForInvalidArgs:
 		return "lifecycle reported invalid arguments"
-	case lifecycle.CodeIncompatiblePlatformAPI:
+	case lifecycle.CodeForIncompatiblePlatformAPI:
 		return "incompatible version of Platform API"
-	case lifecycle.CodeIncompatibleBuildpackAPI:
+	case lifecycle.CodeForIncompatibleBuildpackAPI:
 		return "incompatible version of Buildpacks API"
 	default:
 		// we should never see CodeRebaseError or CodeLaunchError

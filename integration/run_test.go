@@ -62,6 +62,11 @@ var tests = []struct {
 		targetLog:   "Hello world!",
 	},
 	{
+		description: "ko",
+		dir:         "examples/ko",
+		deployments: []string{"ko"},
+	},
+	{
 		description: "nodejs",
 		dir:         "examples/nodejs",
 		deployments: []string{"node"},
@@ -105,6 +110,17 @@ var tests = []struct {
 		pods:        []string{"bazel"},
 	},
 	{
+		description: "bazel oci",
+		dir:         "testdata/bazel-rules-oci",
+		deployments: []string{"helloweb"},
+	},
+	{
+		description: "bazel oci sub-directory",
+		dir:         "testdata/bazel-rules-oci",
+		args:        []string{"-p", "target-with-package"},
+		deployments: []string{"helloweb"},
+	},
+	{
 		description: "jib",
 		dir:         "testdata/jib",
 		deployments: []string{"web"},
@@ -131,25 +147,36 @@ var tests = []struct {
 		pods:        []string{"getting-started-custom"},
 	},
 	{
-		description: "buildpacks Go",
-		dir:         "examples/buildpacks",
-		deployments: []string{"web"},
+		description: "helm templating charPath",
+		dir:         "testdata/helm",
+		args:        []string{"-p", "helm-templating-charPath"},
+		deployments: []string{"skaffold-helm"},
+		env:         []string{"FOO=skaffold-helm"},
 	},
-	{
-		description: "buildpacks NodeJS",
-		dir:         "examples/buildpacks-node",
-		deployments: []string{"web"},
-	},
-	{
-		description: "buildpacks Python",
-		dir:         "examples/buildpacks-python",
-		deployments: []string{"web"},
-	},
-	{
-		description: "buildpacks Java",
-		dir:         "examples/buildpacks-java",
-		deployments: []string{"web"},
-	},
+	// TODO(#8811): Enable this test when issue is solve.
+	// {
+	// 	description: "buildpacks Go",
+	// 	dir:         "examples/buildpacks",
+	// 	deployments: []string{"web"},
+	// },
+	// TODO(#8811): Enable this test when issue is solve.
+	// {
+	// 	description: "buildpacks NodeJS",
+	// 	dir:         "examples/buildpacks-node",
+	// 	deployments: []string{"web"},
+	// },
+	// TODO(#8811): Enable this test when issue is solve.
+	// {
+	// 	description: "buildpacks Python",
+	// 	dir:         "examples/buildpacks-python",
+	// 	deployments: []string{"web"},
+	// },
+	// TODO(#8811): Enable this test when issue is solve.
+	// {
+	// 	description: "buildpacks Java",
+	// 	dir:         "examples/buildpacks-java",
+	// 	deployments: []string{"web"},
+	// },
 	{
 		description: "kustomize",
 		dir:         "examples/getting-started-kustomize",

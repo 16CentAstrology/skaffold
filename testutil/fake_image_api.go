@@ -23,15 +23,19 @@ import (
 	"fmt"
 	"io"
 	"math"
-	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
 
 	"github.com/docker/docker/api/types"
+	"github.com/docker/docker/api/types/image"
 	"github.com/docker/docker/api/types/registry"
+	"github.com/docker/docker/api/types/system"
 	"github.com/docker/docker/client"
 	reg "github.com/docker/docker/registry"
+	"github.com/google/go-containerregistry/pkg/name"
+	"github.com/google/go-containerregistry/pkg/v1/random"
+	"github.com/google/go-containerregistry/pkg/v1/tarball"
 	"github.com/opencontainers/go-digest"
 	v1 "github.com/opencontainers/image-spec/specs-go/v1"
 )
@@ -112,9 +116,7 @@ type notFoundError struct {
 	error
 }
 
-func (e notFoundError) NotFound() bool {
-	return true
-}
+func (e notFoundError) NotFound() {}
 
 type errReader struct{}
 
@@ -149,11 +151,11 @@ func (f *FakeAPIClient) ImageBuild(_ context.Context, _ io.Reader, options types
 	}, nil
 }
 
-func (f *FakeAPIClient) ImageRemove(_ context.Context, _ string, _ types.ImageRemoveOptions) ([]types.ImageDeleteResponseItem, error) {
+func (f *FakeAPIClient) ImageRemove(_ context.Context, _ string, _ image.RemoveOptions) ([]image.DeleteResponse, error) {
 	if f.ErrImageRemove {
-		return []types.ImageDeleteResponseItem{}, fmt.Errorf("test error")
+		return []image.DeleteResponse{}, fmt.Errorf("test error")
 	}
-	return []types.ImageDeleteResponseItem{}, nil
+	return []image.DeleteResponse{}, nil
 }
 
 func (f *FakeAPIClient) ImageInspectWithRaw(_ context.Context, refOrID string) (types.ImageInspect, []byte, error) {
@@ -220,7 +222,7 @@ func (f *FakeAPIClient) ImageTag(_ context.Context, image, ref string) error {
 	return nil
 }
 
-func (f *FakeAPIClient) ImagePush(_ context.Context, ref string, _ types.ImagePushOptions) (io.ReadCloser, error) {
+func (f *FakeAPIClient) ImagePush(_ context.Context, ref string, _ image.PushOptions) (io.ReadCloser, error) {
 	if f.ErrImagePush {
 		return nil, fmt.Errorf("")
 	}
@@ -241,7 +243,7 @@ func (f *FakeAPIClient) ImagePush(_ context.Context, ref string, _ types.ImagePu
 	return f.body(digest), nil
 }
 
-func (f *FakeAPIClient) ImagePull(_ context.Context, ref string, _ types.ImagePullOptions) (io.ReadCloser, error) {
+func (f *FakeAPIClient) ImagePull(_ context.Context, ref string, _ image.PullOptions) (io.ReadCloser, error) {
 	f.pulled.Store(ref, ref)
 	if f.ErrImagePull {
 		return nil, fmt.Errorf("")
@@ -250,8 +252,8 @@ func (f *FakeAPIClient) ImagePull(_ context.Context, ref string, _ types.ImagePu
 	return f.body(""), nil
 }
 
-func (f *FakeAPIClient) Info(context.Context) (types.Info, error) {
-	return types.Info{
+func (f *FakeAPIClient) Info(context.Context) (system.Info, error) {
+	return system.Info{
 		IndexServerAddress: reg.IndexServer,
 	}, nil
 }
@@ -271,15 +273,15 @@ func (f *FakeAPIClient) ImageLoad(ctx context.Context, input io.Reader, quiet bo
 	}, nil
 }
 
-func (f *FakeAPIClient) ImageList(ctx context.Context, ops types.ImageListOptions) ([]types.ImageSummary, error) {
+func (f *FakeAPIClient) ImageList(ctx context.Context, ops image.ListOptions) ([]image.Summary, error) {
 	if f.ErrImageList {
-		return []types.ImageSummary{}, fmt.Errorf("test error")
+		return []image.Summary{}, fmt.Errorf("test error")
 	}
-	var rt []types.ImageSummary
+	var rt []image.Summary
 	ref := ops.Filters.Get("reference")[0]
 
 	for i, tag := range f.LocalImages[ref] {
-		rt = append(rt, types.ImageSummary{
+		rt = append(rt, image.Summary{
 			ID:      tag,
 			Created: int64(i),
 		})
@@ -287,7 +289,11 @@ func (f *FakeAPIClient) ImageList(ctx context.Context, ops types.ImageListOption
 	return rt, nil
 }
 
-func (f *FakeAPIClient) DiskUsage(ctx context.Context) (types.DiskUsage, error) {
+func (f *FakeAPIClient) ImageHistory(ctx context.Context, image string) ([]image.HistoryResponseItem, error) {
+	return nil, nil
+}
+
+func (f *FakeAPIClient) DiskUsage(ctx context.Context, ops types.DiskUsageOptions) (types.DiskUsage, error) {
 	// if DUFails is positive faile first DUFails errors and then return ok
 	// if negative, return ok first DUFails times and then fail the rest
 	if f.DUFails > 0 {
@@ -307,16 +313,25 @@ func (f *FakeAPIClient) DiskUsage(ctx context.Context) (types.DiskUsage, error) 
 
 func (f *FakeAPIClient) Close() error { return nil }
 
-// TODO(dgageot): create something that looks more like an actual tar file.
 func CreateFakeImageTar(ref string, path string) error {
-	return os.WriteFile(path, []byte(ref), os.ModePerm)
+	image, err := random.Image(1024, 1)
+	if err != nil {
+		return fmt.Errorf("failed to create fake image %w", err)
+	}
+	reference, err := name.ParseReference(ref)
+	if err != nil {
+		return fmt.Errorf("failed to parse reference %w", err)
+	}
+	return tarball.WriteToFile(path, reference, image)
 }
 
 func ReadRefFromFakeTar(input io.Reader) (string, error) {
-	buf, err := io.ReadAll(input)
+	manifest, err := tarball.LoadManifest(func() (io.ReadCloser, error) {
+		return io.NopCloser(input), nil
+	})
 	if err != nil {
-		return "", fmt.Errorf("reading tar")
+		return "", fmt.Errorf("loading manifest %w", err)
 	}
 
-	return string(buf), nil
+	return manifest[0].RepoTags[0], nil
 }

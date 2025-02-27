@@ -18,6 +18,7 @@ package docker
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"sync"
 	"sync/atomic"
@@ -318,6 +319,14 @@ func TestGetBuildArgs(t *testing.T) {
 			want: []string{"--foo", "--bar"},
 		},
 		{
+			description: "expand env for CLI flags",
+			artifact: &latest.DockerArtifact{
+				CliFlags: []string{"--cache-to=type=registry,ref={{ .IMAGE_REPO }}/cache-image:cache"},
+			},
+			env:  []string{"IMAGE_REPO=docker.io/library"},
+			want: []string{"--cache-to=type=registry,ref=docker.io/library/cache-image:cache"},
+		},
+		{
 			description: "target",
 			artifact: &latest.DockerArtifact{
 				Target: "stage1",
@@ -371,6 +380,15 @@ func TestGetBuildArgs(t *testing.T) {
 			want: []string{"--secret", "id=mysecret,src=foo.src"},
 		},
 		{
+			description: "secret with file source in home directory",
+			artifact: &latest.DockerArtifact{
+				Secrets: []*latest.DockerSecret{
+					{ID: "mysecret", Source: "~/foo.src"},
+				},
+			},
+			want: []string{"--secret", fmt.Sprintf("id=mysecret,src=%s", util.ExpandHomePath("~/foo.src"))},
+		},
+		{
 			description: "secret with env source",
 			artifact: &latest.DockerArtifact{
 				Secrets: []*latest.DockerSecret{
@@ -420,7 +438,7 @@ func TestGetBuildArgs(t *testing.T) {
 				return
 			}
 
-			result, err := ToCLIBuildArgs(test.artifact, args)
+			result, err := ToCLIBuildArgs(test.artifact, args, nil)
 
 			t.CheckError(test.shouldErr, err)
 			if !test.shouldErr {

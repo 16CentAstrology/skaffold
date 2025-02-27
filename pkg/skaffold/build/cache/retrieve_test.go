@@ -22,7 +22,7 @@ import (
 	"io"
 	"testing"
 
-	"github.com/docker/docker/api/types"
+	"github.com/docker/docker/api/types/registry"
 	specs "github.com/opencontainers/image-spec/specs-go/v1"
 
 	"github.com/GoogleContainerTools/skaffold/v2/pkg/skaffold/build"
@@ -37,7 +37,7 @@ import (
 )
 
 func depLister(files map[string][]string) DependencyLister {
-	return func(_ context.Context, artifact *latest.Artifact) ([]string, error) {
+	return func(_ context.Context, artifact *latest.Artifact, tag string) ([]string, error) {
 		list, found := files[artifact.ImageName]
 		if !found {
 			return nil, errors.New("unknown artifact")
@@ -103,10 +103,10 @@ func (b *mockBuilder) Build(ctx context.Context, out io.Writer, tags tag.ImageTa
 
 type stubAuth struct{}
 
-func (t stubAuth) GetAuthConfig(string) (types.AuthConfig, error) {
-	return types.AuthConfig{}, nil
+func (t stubAuth) GetAuthConfig(context.Context, string) (registry.AuthConfig, error) {
+	return registry.AuthConfig{}, nil
 }
-func (t stubAuth) GetAllAuthConfigs(context.Context) (map[string]types.AuthConfig, error) {
+func (t stubAuth) GetAllAuthConfigs(context.Context) (map[string]registry.AuthConfig, error) {
 	return nil, nil
 }
 
@@ -138,10 +138,6 @@ func TestCacheBuildLocal(t *testing.T) {
 			return dockerDaemon, nil
 		})
 
-		// Mock args builder
-		t.Override(&docker.EvalBuildArgs, func(_ config.RunMode, _ string, _ string, args map[string]*string, _ map[string]*string) (map[string]*string, error) {
-			return args, nil
-		})
 		t.Override(&docker.EvalBuildArgsWithEnv, func(_ config.RunMode, _ string, _ string, args map[string]*string, _ map[string]*string, _ map[string]string) (map[string]*string, error) {
 			return args, nil
 		})
@@ -238,10 +234,6 @@ func TestCacheBuildRemote(t *testing.T) {
 			}
 		})
 
-		// Mock args builder
-		t.Override(&docker.EvalBuildArgs, func(_ config.RunMode, _ string, _ string, args map[string]*string, _ map[string]*string) (map[string]*string, error) {
-			return args, nil
-		})
 		t.Override(&docker.EvalBuildArgsWithEnv, func(_ config.RunMode, _ string, _ string, args map[string]*string, _ map[string]*string, _ map[string]string) (map[string]*string, error) {
 			return args, nil
 		})
@@ -326,10 +318,6 @@ func TestCacheFindMissing(t *testing.T) {
 			}
 		})
 
-		// Mock args builder
-		t.Override(&docker.EvalBuildArgs, func(_ config.RunMode, _ string, _ string, args map[string]*string, _ map[string]*string) (map[string]*string, error) {
-			return args, nil
-		})
 		t.Override(&docker.EvalBuildArgsWithEnv, func(_ config.RunMode, _ string, _ string, args map[string]*string, _ map[string]*string, _ map[string]string) (map[string]*string, error) {
 			return args, nil
 		})

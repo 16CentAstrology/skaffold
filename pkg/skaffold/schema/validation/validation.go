@@ -25,7 +25,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/docker/docker/api/types"
+	"github.com/docker/docker/api/types/container"
 	"github.com/pkg/errors"
 
 	"github.com/GoogleContainerTools/skaffold/v2/pkg/skaffold/build/misc"
@@ -36,7 +36,6 @@ import (
 	"github.com/GoogleContainerTools/skaffold/v2/pkg/skaffold/output/log"
 	"github.com/GoogleContainerTools/skaffold/v2/pkg/skaffold/parser"
 	"github.com/GoogleContainerTools/skaffold/v2/pkg/skaffold/parser/configlocations"
-	"github.com/GoogleContainerTools/skaffold/v2/pkg/skaffold/render/renderer/kpt"
 	"github.com/GoogleContainerTools/skaffold/v2/pkg/skaffold/runner/runcontext"
 	"github.com/GoogleContainerTools/skaffold/v2/pkg/skaffold/schema/latest"
 	"github.com/GoogleContainerTools/skaffold/v2/pkg/skaffold/util"
@@ -87,8 +86,6 @@ func ProcessToErrorWithLocation(configs parser.SkaffoldConfigSet, validateConfig
 		errs = append(errs, validateTaggingPolicy(config, config.Build)...)
 		errs = append(errs, validateCustomTest(config, config.Test)...)
 		errs = append(errs, validateGCBConfig(config, config.Build)...)
-		errs = append(errs, validateVerifyTests(config, config.Verify)...)
-		errs = append(errs, validateKptRendererVersion(config, config.Deploy, config.Render)...)
 	}
 	errs = append(errs, validateArtifactDependencies(configs)...)
 	if validateConfig.CheckDeploySource {
@@ -99,25 +96,6 @@ func ProcessToErrorWithLocation(configs parser.SkaffoldConfigSet, validateConfig
 		return nil
 	}
 	return errs
-}
-
-func validateKptRendererVersion(cfg *parser.SkaffoldConfigEntry, dc latest.DeployConfig, rc latest.RenderConfig) (cfgErrs []ErrorWithLocation) {
-	if dc.KptDeploy != nil {
-		return
-	}
-
-	if rc.Kpt == nil && rc.Transform == nil && rc.Validate == nil { // no kpt renderer created
-		return
-	}
-
-	if err := kpt.CheckIsProperBinVersion(context.TODO()); err != nil {
-		cfgErrs = append(cfgErrs, ErrorWithLocation{
-			Error:    err,
-			Location: cfg.YAMLInfos.LocateField(cfg, "Render"),
-		})
-	}
-
-	return
 }
 
 // Process checks if the Skaffold pipeline is valid and returns all encountered errors as a concatenated string
@@ -131,7 +109,7 @@ func Process(configs parser.SkaffoldConfigSet, validateConfig Options) error {
 		messages = append(messages, err.Error.Error())
 	}
 	if len(messages) != 0 {
-		return fmt.Errorf(strings.Join(messages, "\n"))
+		return errors.New(strings.Join(messages, "\n"))
 	}
 	return nil
 }
@@ -141,8 +119,12 @@ func Process(configs parser.SkaffoldConfigSet, validateConfig Options) error {
 func ProcessWithRunContext(ctx context.Context, runCtx *runcontext.RunContext) error {
 	var errs []error
 	errs = append(errs, validateDockerNetworkContainerExists(ctx, runCtx.Artifacts(), runCtx)...)
-	errs = append(errs, validateVerifyTestsExistOnVerifyCommand(runCtx.DefaultPipeline().Verify, runCtx)...)
+	errs = append(errs, validateVerifyTestsExistOnVerifyCommand(runCtx)...)
+	errs = append(errs, validateVerifyTests(runCtx)...)
 	errs = append(errs, validateLocationSetForCloudRun(runCtx)...)
+	errs = append(errs, validateCustomActionsLists(runCtx)...)
+	errs = append(errs, validateCustomActionsNames(runCtx)...)
+	errs = append(errs, validateCustomActionsExecModes(runCtx)...)
 
 	if len(errs) == 0 {
 		return nil
@@ -151,7 +133,7 @@ func ProcessWithRunContext(ctx context.Context, runCtx *runcontext.RunContext) e
 	for _, err := range errs {
 		messages = append(messages, err.Error())
 	}
-	return fmt.Errorf(strings.Join(messages, " \n "))
+	return errors.New(strings.Join(messages, " \n "))
 }
 
 // validateTaggingPolicy checks that the tagging policy is valid in combination with other options.
@@ -160,7 +142,7 @@ func validateTaggingPolicy(cfg *parser.SkaffoldConfigEntry, bc latest.BuildConfi
 		// sha256 just uses `latest` tag, so tryImportMissing will virtually always succeed (#4889)
 		if bc.LocalBuild.TryImportMissing && bc.TagPolicy.ShaTagger != nil {
 			cfgErrs = append(cfgErrs, ErrorWithLocation{
-				Error:    fmt.Errorf("tagging policy 'sha256' can not be used when 'tryImportMissing' is enabled"),
+				Error:    errors.New("tagging policy 'sha256' can not be used when 'tryImportMissing' is enabled"),
 				Location: cfg.YAMLInfos.Locate(cfg.Build.TagPolicy.ShaTagger),
 			})
 		}
@@ -345,7 +327,7 @@ func extractContainerNameFromNetworkMode(mode string) (string, error) {
 		return id, nil
 	}
 	errMsg := fmt.Sprintf("extracting container name from a non valid container network mode '%s'", mode)
-	return "", sErrors.NewError(fmt.Errorf(errMsg),
+	return "", sErrors.NewError(errors.New(errMsg),
 		&proto.ActionableErr{
 			Message: errMsg,
 			ErrCode: proto.StatusCode_INIT_DOCKER_NETWORK_INVALID_MODE,
@@ -372,7 +354,7 @@ func validateDockerContainerExpression(image string, id string) error {
 	containerRegExp := regexp.MustCompile("^[a-zA-Z0-9][a-zA-Z0-9_.-]*$")
 	if !containerRegExp.MatchString(id) {
 		errMsg := fmt.Sprintf("artifact %s has invalid container name '%s'", image, id)
-		return sErrors.NewError(fmt.Errorf(errMsg),
+		return sErrors.NewError(errors.New(errMsg),
 			&proto.ActionableErr{
 				Message: errMsg,
 				ErrCode: proto.StatusCode_INIT_DOCKER_NETWORK_INVALID_CONTAINER_NAME,
@@ -393,8 +375,7 @@ func validateDockerNetworkMode(cfg *parser.SkaffoldConfigEntry, artifacts []*lat
 		if a.DockerArtifact == nil || a.DockerArtifact.NetworkMode == "" {
 			continue
 		}
-		mode := strings.ToLower(a.DockerArtifact.NetworkMode)
-		if mode == "none" || mode == "bridge" || mode == "host" {
+		if !strings.HasPrefix(strings.ToLower(a.DockerArtifact.NetworkMode), "container:") {
 			continue
 		}
 		networkModeErr := validateDockerNetworkModeExpression(a.ImageName, a.DockerArtifact.NetworkMode)
@@ -411,10 +392,14 @@ func validateDockerNetworkMode(cfg *parser.SkaffoldConfigEntry, artifacts []*lat
 }
 
 // Validate that test cases exist when `verify` is called, otherwise Skaffold should error
-func validateVerifyTestsExistOnVerifyCommand(tcs []*latest.VerifyTestCase, runCtx *runcontext.RunContext) []error {
+func validateVerifyTestsExistOnVerifyCommand(runCtx *runcontext.RunContext) []error {
 	var errs []error
+	tcs := []*latest.VerifyTestCase{}
+	for _, pipeline := range runCtx.GetPipelines() {
+		tcs = append(tcs, pipeline.Verify...)
+	}
 	if len(tcs) == 0 && runCtx.Opts.Command == "verify" {
-		errs = append(errs, fmt.Errorf("verify command expects non-zero number of test cases"))
+		errs = append(errs, errors.New("verify command expects non-zero number of test cases"))
 	}
 	return errs
 }
@@ -446,7 +431,7 @@ func validateDockerNetworkContainerExists(ctx context.Context, artifacts []*late
 				errs = append(errs, err)
 				return errs
 			}
-			containers, err := client.ContainerList(ctx, types.ContainerListOptions{})
+			containers, err := client.ContainerList(ctx, container.ListOptions{})
 			if err != nil {
 				errs = append(errs, sErrors.NewError(err,
 					&proto.ActionableErr{
@@ -474,7 +459,7 @@ func validateDockerNetworkContainerExists(ctx context.Context, artifacts []*late
 				}
 			}
 			errMsg := fmt.Sprintf("container '%s' not found, required by image '%s' for docker network stack sharing", id, a.ImageName)
-			errs = append(errs, sErrors.NewError(fmt.Errorf(errMsg),
+			errs = append(errs, sErrors.NewError(errors.New(errMsg),
 				&proto.ActionableErr{
 					Message: errMsg,
 					ErrCode: proto.StatusCode_INIT_DOCKER_NETWORK_CONTAINER_DOES_NOT_EXIST,
@@ -722,30 +707,88 @@ func validateLogPrefix(cfg *parser.SkaffoldConfigEntry, lc latest.LogsConfig) []
 // validateVerifyTests
 // - makes sure that each test name is unique
 // - makes sure that each container name is unique
-func validateVerifyTests(cfg *parser.SkaffoldConfigEntry, tcs []*latest.VerifyTestCase) (cfgErrs []ErrorWithLocation) {
+func validateVerifyTests(runCtx *runcontext.RunContext) []error {
+	var errs []error
 	seenTestName := map[string]bool{}
 	seenContainerName := map[string]bool{}
-	for i, tc := range tcs {
+	tcs := []*latest.VerifyTestCase{}
+	for _, pipeline := range runCtx.GetPipelines() {
+		tcs = append(tcs, pipeline.Verify...)
+	}
+	for _, tc := range tcs {
 		if _, ok := seenTestName[tc.Name]; ok {
-			return []ErrorWithLocation{
-				{
-					Error:    fmt.Errorf("found duplicate test name '%s' in 'verify' test cases. 'verify' test case names must be unique", tc.Name),
-					Location: cfg.YAMLInfos.Locate(&cfg.Verify[i]),
-				},
-			}
+			errs = append(errs, fmt.Errorf("found duplicate test name '%s' in 'verify' test cases. 'verify' test case names must be unique", tc.Name))
 		}
 		if _, ok := seenContainerName[tc.Container.Name]; ok {
-			return []ErrorWithLocation{
-				{
-					Error:    fmt.Errorf("found duplicate container name '%s' in 'verify' test cases. 'verify' container names must be unique", tc.Container.Name),
-					Location: cfg.YAMLInfos.Locate(&cfg.Verify[i]),
-				},
-			}
+			errs = append(errs, fmt.Errorf("found duplicate container name '%s' in 'verify' test cases. 'verify' container names must be unique", tc.Container.Name))
 		}
 		seenTestName[tc.Name] = true
 		seenContainerName[tc.Container.Name] = true
 	}
-	return nil
+	return errs
+}
+
+// validateCustomActions
+// - makes sure that each custom action name is unique
+// - makes sure that each custom action container name is unique
+func validateCustomActionsNames(runCtx *runcontext.RunContext) (errs []error) {
+	acs := []latest.Action{}
+	seenAcs := map[string]bool{}
+	seenConts := map[string]bool{}
+
+	for _, pipeline := range runCtx.GetPipelines() {
+		acs = append(acs, pipeline.CustomActions...)
+	}
+
+	for _, a := range acs {
+		if _, found := seenAcs[a.Name]; found {
+			errs = append(errs, fmt.Errorf("found duplicate custom action %s. Custom action names must be unique", a.Name))
+		}
+
+		for _, c := range a.Containers {
+			if _, found := seenConts[c.Name]; found {
+				errs = append(errs, fmt.Errorf("found duplicate container name %s in custom action. Container names must be unique", c.Name))
+			}
+			seenConts[c.Name] = true
+		}
+
+		seenAcs[a.Name] = true
+	}
+
+	return
+}
+
+// validateCustomActionsLists
+// - makes sure that each custom action has one or more containers
+func validateCustomActionsLists(runCtx *runcontext.RunContext) (errs []error) {
+	acs := []latest.Action{}
+
+	for _, pipeline := range runCtx.GetPipelines() {
+		acs = append(acs, pipeline.CustomActions...)
+	}
+
+	for _, a := range acs {
+		if len(a.Containers) == 0 {
+			errs = append(errs, fmt.Errorf("custom action %s doesn't have containers. custom actions must have one or more containers associated", a.Name))
+		}
+	}
+	return
+}
+
+func validateCustomActionsExecModes(runCtx *runcontext.RunContext) (errs []error) {
+	acs := []latest.Action{}
+
+	for _, pipeline := range runCtx.GetPipelines() {
+		acs = append(acs, pipeline.CustomActions...)
+	}
+
+	for _, a := range acs {
+		if a.ExecutionModeConfig.KubernetesClusterExecutionMode != nil && a.ExecutionModeConfig.LocalExecutionMode != nil {
+			errs = append(errs, fmt.Errorf("custom action %s have more than one execution mode defined. custom actions must have only one execution mode", a.Name))
+		}
+	}
+
+	return
 }
 
 // validateCustomTest
@@ -831,7 +874,7 @@ func validateKubectlManifests(configs parser.SkaffoldConfigSet) (errs []ErrorWit
 				// TODO(aaron-prindle) parse the manifest node to extract exact correct line # for the value here (currently it is the parent obj)
 				msg := fmt.Sprintf("Manifest file %q referenced in skaffold config could not be found", pattern)
 				errMsg := wrapWithContext(c, ErrorWithLocation{
-					Error:    fmt.Errorf(msg),
+					Error:    errors.New(msg),
 					Location: c.YAMLInfos.Locate(&c.Render.RawK8s),
 				})
 				errs = append(errs, ErrorWithLocation{
@@ -877,7 +920,7 @@ func validateLocationSetForCloudRun(rCtx *runcontext.RunContext) []error {
 		}
 	}
 	if runDeployer && !hasLocation {
-		return []error{sErrors.NewError(fmt.Errorf("location must be specified with Cloud Run Deployer"),
+		return []error{sErrors.NewError(errors.New("location must be specified with Cloud Run Deployer"),
 			&proto.ActionableErr{
 				Message: "Cloud Run Location is not specified",
 				ErrCode: proto.StatusCode_INIT_CLOUD_RUN_LOCATION_ERROR,
