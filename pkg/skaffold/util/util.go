@@ -30,6 +30,8 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/joho/godotenv"
+
 	"github.com/GoogleContainerTools/skaffold/v2/pkg/skaffold/output/log"
 	"github.com/GoogleContainerTools/skaffold/v2/pkg/skaffold/walk"
 	"github.com/GoogleContainerTools/skaffold/v2/pkg/skaffold/yaml"
@@ -282,7 +284,7 @@ func IsEmptyDir(path string) bool {
 		return false
 	}
 	defer d.Close()
-	if _, err := d.ReadDir(1); err == io.EOF {
+	if _, err := d.Readdirnames(1); err == io.EOF {
 		return true
 	}
 	return false
@@ -317,6 +319,46 @@ func hasHiddenPrefix(s string) bool {
 }
 
 func SanitizeHelmTemplateValue(s string) string {
-	// replaces commonly used image name chars that are illegal go template chars -> replaces "/", "-" and "." with "_"
-	return strings.ReplaceAll(strings.ReplaceAll(strings.ReplaceAll(s, ".", "_"), "-", "_"), "/", "_")
+	// replaces commonly used image name chars that are illegal go template chars
+	// replaces "/", "-", "." and ":" with "_"
+	r := strings.NewReplacer(".", "_", "-", "_", "/", "_", ":", "_")
+	return r.Replace(s)
+}
+
+func ParseNamespaceFromFlags(flgs []string) string {
+	for i, s := range flgs {
+		if s == "-n" && i < len(flgs)-1 {
+			return flgs[i+1]
+		}
+		if strings.HasPrefix(s, "-n=") && len(strings.Split(s, "=")) == 2 {
+			return strings.Split(s, "=")[1]
+		}
+		if s == "--namespace" && i < len(flgs)-1 {
+			return flgs[i+1]
+		}
+		if strings.HasPrefix(s, "--namespace=") && len(strings.Split(s, "=")) == 2 {
+			return strings.Split(s, "=")[1]
+		}
+	}
+	return ""
+}
+
+func ExpandHomePath(path string) string {
+	if strings.HasPrefix(path, "~/") {
+		dirname, _ := os.UserHomeDir()
+		path = filepath.Join(dirname, path[2:])
+	}
+	return path
+}
+
+func ParseEnvVariablesFromFile(fp string) (map[string]string, error) {
+	f, err := os.Open(fp)
+	if err != nil {
+		return nil, err
+	}
+	envMap, err := godotenv.Parse(f)
+	if err != nil {
+		return nil, err
+	}
+	return envMap, nil
 }

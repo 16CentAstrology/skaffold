@@ -35,7 +35,7 @@ import (
 )
 
 // ConstructOverrideArgs creates the command line arguments for overrides
-func ConstructOverrideArgs(r *latest.HelmRelease, builds []graph.Artifact, args []string) ([]string, error) {
+func ConstructOverrideArgs(r *latest.HelmRelease, builds []graph.Artifact, args []string, manifestOverrides map[string]string) ([]string, error) {
 	for _, k := range maps.SortKeys(r.SetValues) {
 		args = append(args, "--set", fmt.Sprintf("%s=%s", k, r.SetValues[k]))
 	}
@@ -76,6 +76,12 @@ func ConstructOverrideArgs(r *latest.HelmRelease, builds []graph.Artifact, args 
 			return nil, err
 		}
 
+		// hack required when using new Skaffold v2.X.Y setValueTemplates w/ Skaffold v1.X.Y "imageStrategy: helm"
+		// ex: image: "{{.Values.image.repository}}:{{.Values.image.tag}}"
+		// when the helm template replacements are done with `dev` and `run` there
+		// is an additional `@` suffix inserted that needs to be removed or else deploys will fail
+		v = strings.TrimSuffix(v, "@")
+
 		args = append(args, "--set", fmt.Sprintf("%s=%s", expandedKey, v))
 	}
 
@@ -92,6 +98,11 @@ func ConstructOverrideArgs(r *latest.HelmRelease, builds []graph.Artifact, args 
 
 		args = append(args, "-f", exp)
 	}
+
+	for _, k := range maps.SortKeys(manifestOverrides) {
+		args = append(args, "--set", fmt.Sprintf("%s=%s", k, manifestOverrides[k]))
+	}
+
 	return args, nil
 }
 

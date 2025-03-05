@@ -22,6 +22,7 @@ import (
 
 	"github.com/google/go-cmp/cmp"
 
+	"github.com/GoogleContainerTools/skaffold/v2/pkg/skaffold/debug/types"
 	"github.com/GoogleContainerTools/skaffold/v2/testutil"
 )
 
@@ -55,6 +56,31 @@ func TestExtractDlvArg(t *testing.T) {
 			} else {
 				t.CheckDeepEqual(*test.result, *extractDlvSpec(test.in), cmp.AllowUnexported(dlvSpec{}))
 			}
+		})
+	}
+}
+
+func TestDlvTransformer_MatchRuntime(t *testing.T) {
+	tests := []struct {
+		description string
+		source      ImageConfiguration
+		result      bool
+	}{
+		{description: "node non-match",
+			source: ImageConfiguration{RuntimeType: types.Runtimes.NodeJS},
+			result: false,
+		},
+		{description: "go match",
+			source: ImageConfiguration{RuntimeType: types.Runtimes.Go},
+			result: true,
+		},
+	}
+
+	for _, test := range tests {
+		testutil.Run(t, test.description, func(t *testutil.T) {
+			result := dlvTransformer{}.MatchRuntime(test.source)
+
+			t.CheckDeepEqual(test.result, result)
 		})
 	}
 }

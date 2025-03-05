@@ -106,7 +106,12 @@ func (b *Builder) buildArtifactWithCloudBuild(ctx context.Context, out io.Writer
 	}
 	log.Entry(ctx).Debugf("project id set to %s", projectID)
 
-	cbBucket := fmt.Sprintf("%s%s", projectID, constants.GCSBucketSuffix)
+	cbBucket := b.Bucket
+	if cbBucket == "" {
+		cbBucket = fmt.Sprintf("%s%s", projectID, constants.GCSBucketSuffix)
+	}
+	log.Entry(ctx).Debugf("bucket set to %s", cbBucket)
+
 	buildObject := fmt.Sprintf("source/%s-%s.tar.gz", projectID, uuid.New().String())
 
 	if err := b.createBucketIfNotExists(ctx, c, projectID, cbBucket); err != nil {
@@ -122,7 +127,7 @@ func (b *Builder) buildArtifactWithCloudBuild(ctx context.Context, out io.Writer
 		})
 	}
 
-	dependencies, err := b.sourceDependencies.SingleArtifactDependencies(ctx, artifact)
+	dependencies, err := b.sourceDependencies.SingleArtifactDependencies(ctx, artifact, tag)
 	if err != nil {
 		return "", sErrors.NewErrorWithStatusCode(&proto.ActionableErr{
 			ErrCode: proto.StatusCode_BUILD_GCB_GET_DEPENDENCY_ERR,
@@ -165,7 +170,7 @@ func (b *Builder) buildArtifactWithCloudBuild(ctx context.Context, out io.Writer
 		return "", err
 	}
 	logsObject := fmt.Sprintf("log-%s.txt", remoteID)
-	output.Default.Fprintf(out, "Logs are available at \nhttps://console.cloud.google.com/m/cloudstorage/b/%s/o/%s\n", cbBucket, logsObject)
+	output.Default.Fprintf(out, "Logs are available at \nhttps://storage.cloud.google.com/%s/%s\n", cbBucket, logsObject)
 
 	var digest string
 	offset := int64(0)
@@ -373,6 +378,11 @@ func (b *Builder) createBucketIfNotExists(ctx context.Context, c *cstorage.Clien
 	return nil
 }
 
+// regionFromWorkerPool returns the region from a worker pool property.
+func (b *Builder) regionFromWorkerPool() string {
+	return strings.Split(b.WorkerPool, "/")[3]
+}
+
 func (b *Builder) createCloudBuild(ctx context.Context, cbclient *cloudbuild.Service, projectID string, buildSpec cloudbuild.Build) (string, func(opts ...googleapi.CallOption) (*cloudbuild.Build, error), error) {
 	var op *cloudbuild.Operation
 	var err error
@@ -388,7 +398,7 @@ func (b *Builder) createCloudBuild(ctx context.Context, cbclient *cloudbuild.Ser
 		if errB != nil {
 			return "", nil, sErrors.NewErrorWithStatusCode(&proto.ActionableErr{
 				ErrCode: proto.StatusCode_BUILD_GCB_GET_BUILD_ID_ERR,
-				Message: err.Error(),
+				Message: errB.Error(),
 			})
 		}
 		return remoteID, cbclient.Projects.Builds.Get(projectID, remoteID).Do, nil
@@ -396,11 +406,13 @@ func (b *Builder) createCloudBuild(ctx context.Context, cbclient *cloudbuild.Ser
 
 	var location string
 
-	if b.Region != "" {
-		location = fmt.Sprintf("projects/%s/locations/%s", projectID, b.Region)
-	}
 	if b.WorkerPool != "" {
-		location = strings.Split(b.WorkerPool, "/workerPools/")[0]
+		location = fmt.Sprintf("projects/%s/locations/%s", projectID, b.regionFromWorkerPool())
+		if b.Region != "" {
+			log.Entry(ctx).Warnf("Both region and worker pool are set. Ignoring provided region and using worker pool region %s", b.regionFromWorkerPool())
+		}
+	} else if b.Region != "" {
+		location = fmt.Sprintf("projects/%s/locations/%s", projectID, b.Region)
 	}
 	log.Entry(ctx).Debugf("location: %s", location)
 	// location should match the format "projects/{project}/locations/{location}"
