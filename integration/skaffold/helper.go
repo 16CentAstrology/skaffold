@@ -47,6 +47,8 @@ type RunBuilder struct {
 	stdin      []byte
 }
 
+const DefaultRepo = "us-central1-docker.pkg.dev/k8s-skaffold/testing"
+
 // Apply runs `skaffold apply` with the given arguments.
 func Apply(args ...string) *RunBuilder {
 	return withDefaults("apply", args)
@@ -80,6 +82,11 @@ func Deploy(args ...string) *RunBuilder {
 // Verify runs `skaffold verify` with the given arguments.
 func Verify(args ...string) *RunBuilder {
 	return withDefaults("verify", args)
+}
+
+// Exec runs `skaffold exec` with the given arguments.
+func Exec(args ...string) *RunBuilder {
+	return withDefaults("exec", args)
 }
 
 // Debug runs `skaffold debug` with the given arguments.
@@ -144,7 +151,7 @@ func GeneratePipeline(args ...string) *RunBuilder {
 func withDefaults(command string, args []string) *RunBuilder {
 	repo := os.Getenv("DEFAULT_REPO")
 	if repo == "" {
-		repo = "us-central1-docker.pkg.dev/k8s-skaffold/testing"
+		repo = DefaultRepo
 	}
 	return &RunBuilder{command: command, args: args, repo: repo}
 }
@@ -310,12 +317,34 @@ func (b *RunBuilder) RunOrFailOutput(t *testing.T) []byte {
 	out, err := cmd.Output()
 	if err != nil {
 		if ee, ok := err.(*exec.ExitError); ok {
-			defer t.Errorf(string(ee.Stderr))
+			defer t.Error(string(ee.Stderr))
 		}
 		t.Fatalf("skaffold %s: %v, %s", b.command, err, out)
 	}
 	t.Logf("Ran %s in %v", cmd.Args, timeutil.Humanize(time.Since(start)))
 	return out
+}
+
+// RunWithStdoutAndStderrOrFail runs the Skaffold command copying the stdout and stderr to the given writers.
+// Fails if there is an error.
+func (b *RunBuilder) RunWithStdoutAndStderrOrFail(t *testing.T, stdout, stderr io.Writer) {
+	t.Helper()
+
+	cmd := b.cmd(context.Background())
+	cmd.Stdout = stdout
+	cmd.Stderr = stderr
+	t.Logf("Running %s in %s", cmd.Args, cmd.Dir)
+
+	start := time.Now()
+	err := cmd.Run()
+	if err != nil {
+		if ee, ok := err.(*exec.ExitError); ok {
+			defer t.Error(string(ee.Stderr))
+		}
+		t.Fatalf("skaffold %s: %v, %s", b.command, err, stderr)
+	}
+
+	t.Logf("Ran %s in %v", cmd.Args, timeutil.Humanize(time.Since(start)))
 }
 
 func (b *RunBuilder) cmd(ctx context.Context) *exec.Cmd {

@@ -45,7 +45,7 @@ type Runner interface {
 	Apply(context.Context, io.Writer) error
 	ApplyDefaultRepo(tag string) (string, error)
 	Build(context.Context, io.Writer, []*latest.Artifact) ([]graph.Artifact, error)
-	Cleanup(context.Context, io.Writer, bool, manifest.ManifestListByConfig) error
+	Cleanup(context.Context, io.Writer, bool, manifest.ManifestListByConfig, string) error
 	Dev(context.Context, io.Writer, []*latest.Artifact) error
 	// Deploy and DeployAndLog: Do they need the `graph.Artifact` and could use render output.
 	Deploy(context.Context, io.Writer, []graph.Artifact, manifest.ManifestListByConfig) error
@@ -59,6 +59,8 @@ type Runner interface {
 	Test(context.Context, io.Writer, []graph.Artifact) error
 	Verify(context.Context, io.Writer, []graph.Artifact) error
 	VerifyAndLog(context.Context, io.Writer, []graph.Artifact) error
+
+	Exec(context.Context, io.Writer, []graph.Artifact, string) error
 }
 
 // SkaffoldRunner is responsible for running the skaffold build, test and deploy config.
@@ -67,11 +69,12 @@ type SkaffoldRunner struct {
 	Pruner
 	tester test.Tester
 
-	renderer renderer.Renderer
-	deployer deploy.Deployer
-	verifier verify.Verifier
-	monitor  filemon.Monitor
-	listener Listener
+	renderer      renderer.Renderer
+	deployer      deploy.Deployer
+	verifier      verify.Verifier
+	actionsRunner ActionsRunner
+	monitor       filemon.Monitor
+	listener      Listener
 
 	cache              cache.Cache
 	changeSet          ChangeSet

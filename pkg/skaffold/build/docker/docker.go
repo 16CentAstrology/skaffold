@@ -72,7 +72,7 @@ func (b *Builder) Build(ctx context.Context, out io.Writer, a *latest.Artifact, 
 	// ignore useCLI boolean if buildkit is enabled since buildkit is only implemented for docker CLI at the moment in skaffold.
 	// we might consider a different approach in the future.
 	// use CLI for cross-platform builds
-	if b.useCLI || (b.useBuildKit != nil && *b.useBuildKit) || len(a.DockerArtifact.CliFlags) > 0 || matcher.IsNotEmpty() {
+	if b.useCLI || (b.useBuildKit != nil && *b.useBuildKit) || len(a.DockerArtifact.CliFlags) > 0 || matcher.IsCrossPlatform() {
 		imageID, err = b.dockerCLIBuild(ctx, output.GetUnderlyingWriter(out), a.ImageName, a.Workspace, dockerfile, a.ArtifactType.DockerArtifact, opts, pl)
 	} else {
 		imageID, err = b.localDocker.Build(ctx, out, a.Workspace, a.ImageName, a.ArtifactType.DockerArtifact, opts)
@@ -93,20 +93,15 @@ func (b *Builder) Build(ctx context.Context, out io.Writer, a *latest.Artifact, 
 
 func (b *Builder) dockerCLIBuild(ctx context.Context, out io.Writer, name string, workspace string, dockerfilePath string, a *latest.DockerArtifact, opts docker.BuildOptions, pl v1.Platform) (string, error) {
 	args := []string{"build", workspace, "--file", dockerfilePath, "-t", opts.Tag}
-	imgRef, err := docker.ParseReference(opts.Tag)
+	imageInfoEnv, err := docker.EnvTags(opts.Tag)
 	if err != nil {
 		return "", fmt.Errorf("couldn't parse image tag: %w", err)
-	}
-	imageInfoEnv := map[string]string{
-		"IMAGE_REPO": imgRef.Repo,
-		"IMAGE_NAME": imgRef.Name,
-		"IMAGE_TAG":  imgRef.Tag,
 	}
 	ba, err := docker.EvalBuildArgsWithEnv(b.cfg.Mode(), workspace, a.DockerfilePath, a.BuildArgs, opts.ExtraBuildArgs, imageInfoEnv)
 	if err != nil {
 		return "", fmt.Errorf("unable to evaluate build args: %w", err)
 	}
-	cliArgs, err := docker.ToCLIBuildArgs(a, ba)
+	cliArgs, err := docker.ToCLIBuildArgs(a, ba, imageInfoEnv)
 	if err != nil {
 		return "", fmt.Errorf("getting docker build args: %w", err)
 	}
@@ -118,6 +113,10 @@ func (b *Builder) dockerCLIBuild(ctx context.Context, out io.Writer, name string
 
 	if pl.String() != "" {
 		args = append(args, "--platform", pl.String())
+	}
+
+	if b.useBuildKit != nil && *b.useBuildKit && !b.pushImages {
+		args = append(args, "--load")
 	}
 
 	cmd := exec.CommandContext(ctx, "docker", args...)
